@@ -68,11 +68,16 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
   console.log("[TikTok DEBUG] region fields:", JSON.stringify(regionRelated));
   console.log("[TikTok DEBUG] language:", user["language"]);
 
-  // Only read region from the actual user object — never from global JSON
-  const finalRegion =
+  // Read region from user object first
+  let finalRegion =
     (typeof user["region"] === "string" && user["region"].length === 2 ? user["region"] : "") ||
     (typeof user["localRegion"] === "string" && user["localRegion"].length === 2 ? user["localRegion"] : "") ||
     "";
+
+  // Fallback: try TikTok internal API which often returns region
+  if (!finalRegion) {
+    finalRegion = await fetchRegionFromApi(String(user["uniqueId"]));
+  }
 
   return {
     username: (user["uniqueId"] as string) ?? username,
@@ -89,6 +94,35 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
   };
 }
 
+
+async function fetchRegionFromApi(username: string): Promise<string> {
+  const apiHeaders = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": `https://www.tiktok.com/@${username}`,
+  };
+
+  const urls = [
+    `https://www.tiktok.com/api/user/detail/?uniqueId=${username}&aid=1988&app_language=en&device_platform=web_pc`,
+    `https://m.tiktok.com/api/user/detail/?uniqueId=${username}&aid=1988&device_platform=web_mobile`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await axios.get(url, { headers: apiHeaders, timeout: 8000 });
+      const data = res.data as Record<string, unknown>;
+      const ui = (data["userInfo"] ?? {}) as Record<string, unknown>;
+      const u = (ui["user"] ?? {}) as Record<string, unknown>;
+      const r = (u["region"] as string | undefined) ?? (u["localRegion"] as string | undefined) ?? "";
+      console.log("[TikTok API] region result:", r, "for:", username);
+      if (r && r.length === 2) return r;
+    } catch (e) {
+      console.log("[TikTok API] endpoint failed:", url, (e as Error).message);
+    }
+  }
+  return "";
+}
 
 export function formatNumber(n: number): string {
   if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + "B";
