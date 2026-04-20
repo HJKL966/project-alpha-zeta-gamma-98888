@@ -12,6 +12,7 @@ export interface TikTokUserInfo {
   avatar: string;
   id: string;
   createTime?: number;
+  nickNameModifyTime?: number;
 }
 
 const HEADERS = {
@@ -57,27 +58,11 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     throw new Error("الحساب غير موجود أو خاص.");
   }
 
-  // Debug: log all region-related fields from the user object
-  const regionRelated: Record<string, unknown> = {};
-  for (const k of Object.keys(user)) {
-    if (k.toLowerCase().includes("region") || k.toLowerCase().includes("country") || k.toLowerCase().includes("locale") || k.toLowerCase().includes("local")) {
-      regionRelated[k] = user[k];
-    }
-  }
-  console.log("[TikTok DEBUG] username:", user["uniqueId"]);
-  console.log("[TikTok DEBUG] region fields:", JSON.stringify(regionRelated));
-  console.log("[TikTok DEBUG] language:", user["language"]);
-
-  // Read region from user object first
-  let finalRegion =
+  // TikTok removed region from public APIs — field is simply absent
+  const region =
     (typeof user["region"] === "string" && user["region"].length === 2 ? user["region"] : "") ||
     (typeof user["localRegion"] === "string" && user["localRegion"].length === 2 ? user["localRegion"] : "") ||
     "";
-
-  // Fallback: try TikTok internal API which often returns region
-  if (!finalRegion) {
-    finalRegion = await fetchRegionFromApi(String(user["uniqueId"]));
-  }
 
   return {
     username: (user["uniqueId"] as string) ?? username,
@@ -87,41 +72,12 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     followers: Number((stats["followerCount"] as number | undefined) ?? 0),
     likes: Number((stats["heartCount"] as number | undefined) ?? 0),
     verified: Boolean(user["verified"] ?? false),
-    region: finalRegion,
+    region,
     avatar: (user["avatarLarger"] as string) ?? "",
     id: (user["id"] as string) ?? "",
     createTime: (user["createTime"] as number | undefined),
+    nickNameModifyTime: (user["nickNameModifyTime"] as number | undefined),
   };
-}
-
-
-async function fetchRegionFromApi(username: string): Promise<string> {
-  const apiHeaders = {
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer": `https://www.tiktok.com/@${username}`,
-  };
-
-  const urls = [
-    `https://www.tiktok.com/api/user/detail/?uniqueId=${username}&aid=1988&app_language=en&device_platform=web_pc`,
-    `https://m.tiktok.com/api/user/detail/?uniqueId=${username}&aid=1988&device_platform=web_mobile`,
-  ];
-
-  for (const url of urls) {
-    try {
-      const res = await axios.get(url, { headers: apiHeaders, timeout: 8000 });
-      const data = res.data as Record<string, unknown>;
-      const ui = (data["userInfo"] ?? {}) as Record<string, unknown>;
-      const u = (ui["user"] ?? {}) as Record<string, unknown>;
-      const r = (u["region"] as string | undefined) ?? (u["localRegion"] as string | undefined) ?? "";
-      console.log("[TikTok API] region result:", r, "for:", username);
-      if (r && r.length === 2) return r;
-    } catch (e) {
-      console.log("[TikTok API] endpoint failed:", url, (e as Error).message);
-    }
-  }
-  return "";
 }
 
 export function formatNumber(n: number): string {
@@ -132,52 +88,25 @@ export function formatNumber(n: number): string {
 }
 
 const REGION_MAP: Record<string, string> = {
-  IQ: "🇮🇶 - IQ",
-  SA: "🇸🇦 - SA",
-  AE: "🇦🇪 - AE",
-  EG: "🇪🇬 - EG",
-  US: "🇺🇸 - US",
-  GB: "🇬🇧 - GB",
-  TR: "🇹🇷 - TR",
-  DE: "🇩🇪 - DE",
-  FR: "🇫🇷 - FR",
-  IN: "🇮🇳 - IN",
-  PK: "🇵🇰 - PK",
-  JO: "🇯🇴 - JO",
-  LB: "🇱🇧 - LB",
-  SY: "🇸🇾 - SY",
-  PS: "🇵🇸 - PS",
-  KW: "🇰🇼 - KW",
-  QA: "🇶🇦 - QA",
-  BH: "🇧🇭 - BH",
-  OM: "🇴🇲 - OM",
-  YE: "🇾🇪 - YE",
-  LY: "🇱🇾 - LY",
-  MA: "🇲🇦 - MA",
-  TN: "🇹🇳 - TN",
-  DZ: "🇩🇿 - DZ",
-  SD: "🇸🇩 - SD",
-  RU: "🇷🇺 - RU",
-  CN: "🇨🇳 - CN",
-  BR: "🇧🇷 - BR",
-  MX: "🇲🇽 - MX",
-  NG: "🇳🇬 - NG",
-  ID: "🇮🇩 - ID",
-  PH: "🇵🇭 - PH",
-  TH: "🇹🇭 - TH",
-  VN: "🇻🇳 - VN",
-  MM: "🇲🇲 - MM",
-  MY: "🇲🇾 - MY",
+  IQ: "🇮🇶 - IQ", SA: "🇸🇦 - SA", AE: "🇦🇪 - AE", EG: "🇪🇬 - EG",
+  US: "🇺🇸 - US", GB: "🇬🇧 - GB", TR: "🇹🇷 - TR", DE: "🇩🇪 - DE",
+  FR: "🇫🇷 - FR", IN: "🇮🇳 - IN", PK: "🇵🇰 - PK", JO: "🇯🇴 - JO",
+  LB: "🇱🇧 - LB", SY: "🇸🇾 - SY", PS: "🇵🇸 - PS", KW: "🇰🇼 - KW",
+  QA: "🇶🇦 - QA", BH: "🇧🇭 - BH", OM: "🇴🇲 - OM", YE: "🇾🇪 - YE",
+  LY: "🇱🇾 - LY", MA: "🇲🇦 - MA", TN: "🇹🇳 - TN", DZ: "🇩🇿 - DZ",
+  SD: "🇸🇩 - SD", RU: "🇷🇺 - RU", CN: "🇨🇳 - CN", BR: "🇧🇷 - BR",
+  MX: "🇲🇽 - MX", NG: "🇳🇬 - NG", ID: "🇮🇩 - ID", PH: "🇵🇭 - PH",
+  TH: "🇹🇭 - TH", VN: "🇻🇳 - VN", MM: "🇲🇲 - MM", MY: "🇲🇾 - MY",
   SG: "🇸🇬 - SG",
 };
 
 export function getRegionLabel(code: string): string {
-  if (!code) return "غير محدد";
+  if (!code) return "غير متوفر";
   return REGION_MAP[code.toUpperCase()] ?? `🌍 - ${code.toUpperCase()}`;
 }
 
 export function formatDate(ts: number | undefined): string {
-  if (!ts) return "غير معروف";
+  if (!ts || ts === 0) return "غير متوفر";
   const d = new Date(ts * 1000);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;

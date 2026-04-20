@@ -18,8 +18,7 @@ export function startBot() {
     const chatId = msg.chat.id;
     bot!.sendMessage(
       chatId,
-      `🎵 *بوت معلومات تيك توك*\n\nأرسل لي يوزر الحساب بدون @ وسأجيب لك معلوماته الكاملة.\n\nمثال: \`username\``,
-      { parse_mode: "Markdown" }
+      `🎵 بوت معلومات تيك توك\n\nأرسل يوزر الحساب بدون @ وسأجيب لك معلوماته.\n\nمثال: username`,
     );
   });
 
@@ -41,23 +40,30 @@ export function startBot() {
       const info = await getTikTokUser(username);
 
       const verifiedBadge = info.verified ? " ✅" : "";
-      const regionLabel = info.region ? getRegionLabel(info.region) : "غير محدد";
-      const createDateStr = info.createTime ? formatDate(info.createTime) : "غير متوفر";
+      const regionLabel = getRegionLabel(info.region);
+      const createDateStr = formatDate(info.createTime);
+      const lastNameChange = formatDate(info.nickNameModifyTime);
 
-      const text =
-        `- Done sir .\n` +
-        ` - By : @YourBot Ch : @YourChannel .\n` +
-        ` - الدولة (${regionLabel})•\n` +
-        ` - الانشاء (${createDateStr})•\n` +
-        ` - ايدي (${info.id})•\n` +
-        ` - متابعهم (${formatNumber(info.following)})•\n` +
-        ` - متابعين (${formatNumber(info.followers)})•\n` +
-        ` - الاسم (${info.nickname}${verifiedBadge})•\n` +
-        (info.bio ? ` - البايو (${info.bio})•\n` : "") +
-        ` - الاعجابات (${formatNumber(info.likes)})•`;
+      const lines: string[] = [
+        `- Done sir .`,
+        ` - By : @YourBot Ch : @YourChannel .`,
+        ` - الدولة (${regionLabel})•`,
+        ` - الانشاء (${createDateStr})•`,
+        ` - ايدي (${info.id})•`,
+        ` - اخر تغيير للاسم (${lastNameChange})•`,
+        ` - متابعهم (${formatNumber(info.following)})•`,
+        ` - متابعين (${formatNumber(info.followers)})•`,
+        ` - الاسم (${info.nickname}${verifiedBadge})•`,
+      ];
+
+      if (info.bio) {
+        lines.push(` - البايو (${info.bio})•`);
+      }
+
+      lines.push(` - الاعجابات (${formatNumber(info.likes)})•`);
 
       await bot!.deleteMessage(chatId, loading.message_id);
-      await bot!.sendMessage(chatId, text);
+      await bot!.sendMessage(chatId, lines.join("\n"));
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : "خطأ غير معروف";
       logger.error({ err, username }, "Failed to fetch TikTok user");
