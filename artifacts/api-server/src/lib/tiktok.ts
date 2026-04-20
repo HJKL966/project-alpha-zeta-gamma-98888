@@ -22,6 +22,19 @@ const HEADERS = {
   Referer: "https://www.tiktok.com/",
 };
 
+function deepFind(obj: unknown, key: string): unknown {
+  if (obj === null || typeof obj !== "object") return undefined;
+  const record = obj as Record<string, unknown>;
+  if (key in record && record[key] !== "" && record[key] !== null && record[key] !== undefined) {
+    return record[key];
+  }
+  for (const v of Object.values(record)) {
+    const found = deepFind(v, key);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
 export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
   const url = `https://www.tiktok.com/@${username}`;
 
@@ -57,7 +70,19 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     throw new Error("الحساب غير موجود أو خاص.");
   }
 
-  const regionCode = (user["region"] as string | undefined) ?? "";
+  // Try multiple region fields
+  const regionCode =
+    (user["region"] as string | undefined) ||
+    (user["localRegion"] as string | undefined) ||
+    (deepFind(jsonData, "region") as string | undefined) ||
+    (deepFind(jsonData, "localRegion") as string | undefined) ||
+    "";
+
+  // Try to get region from API if not found
+  let finalRegion = regionCode;
+  if (!finalRegion) {
+    finalRegion = await fetchRegionFromApi(username);
+  }
 
   return {
     username: (user["uniqueId"] as string) ?? username,
@@ -67,11 +92,47 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     followers: Number((stats["followerCount"] as number | undefined) ?? 0),
     likes: Number((stats["heartCount"] as number | undefined) ?? 0),
     verified: Boolean(user["verified"] ?? false),
-    region: regionCode,
+    region: finalRegion,
     avatar: (user["avatarLarger"] as string) ?? "",
     id: (user["id"] as string) ?? "",
     createTime: (user["createTime"] as number | undefined),
   };
+}
+
+async function fetchRegionFromApi(username: string): Promise<string> {
+  try {
+    const endpoints = [
+      `https://www.tiktok.com/api/user/detail/?uniqueId=${username}&aid=1988&app_language=en`,
+      `https://m.tiktok.com/api/user/detail/?uniqueId=${username}&aid=1988`,
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        const res = await axios.get(endpoint, {
+          headers: {
+            ...HEADERS,
+            "Accept": "application/json",
+          },
+          timeout: 8000,
+        });
+
+        const data = res.data as Record<string, unknown>;
+        const userInfo = (data["userInfo"] ?? {}) as Record<string, unknown>;
+        const user = (userInfo["user"] ?? {}) as Record<string, unknown>;
+
+        const region =
+          (user["region"] as string | undefined) ||
+          (user["localRegion"] as string | undefined) || "";
+
+        if (region) return region;
+      } catch {
+        continue;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return "";
 }
 
 export function formatNumber(n: number): string {
@@ -107,9 +168,22 @@ const REGION_MAP: Record<string, string> = {
   TN: "🇹🇳 - TN",
   DZ: "🇩🇿 - DZ",
   SD: "🇸🇩 - SD",
+  RU: "🇷🇺 - RU",
+  CN: "🇨🇳 - CN",
+  BR: "🇧🇷 - BR",
+  MX: "🇲🇽 - MX",
+  NG: "🇳🇬 - NG",
+  ID: "🇮🇩 - ID",
+  PH: "🇵🇭 - PH",
+  TH: "🇹🇭 - TH",
+  VN: "🇻🇳 - VN",
+  MM: "🇲🇲 - MM",
+  MY: "🇲🇾 - MY",
+  SG: "🇸🇬 - SG",
 };
 
 export function getRegionLabel(code: string): string {
+  if (!code) return "غير محدد";
   return REGION_MAP[code.toUpperCase()] ?? `🌍 - ${code.toUpperCase()}`;
 }
 
