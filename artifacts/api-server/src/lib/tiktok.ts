@@ -22,19 +22,6 @@ const HEADERS = {
   Referer: "https://www.tiktok.com/",
 };
 
-function deepFind(obj: unknown, key: string): unknown {
-  if (obj === null || typeof obj !== "object") return undefined;
-  const record = obj as Record<string, unknown>;
-  if (key in record && record[key] !== "" && record[key] !== null && record[key] !== undefined) {
-    return record[key];
-  }
-  for (const v of Object.values(record)) {
-    const found = deepFind(v, key);
-    if (found !== undefined) return found;
-  }
-  return undefined;
-}
-
 export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
   const url = `https://www.tiktok.com/@${username}`;
 
@@ -70,19 +57,11 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     throw new Error("الحساب غير موجود أو خاص.");
   }
 
-  // Try multiple region fields
-  const regionCode =
-    (user["region"] as string | undefined) ||
-    (user["localRegion"] as string | undefined) ||
-    (deepFind(jsonData, "region") as string | undefined) ||
-    (deepFind(jsonData, "localRegion") as string | undefined) ||
+  // Only read region from the actual user object — never from global JSON
+  const finalRegion =
+    (typeof user["region"] === "string" && user["region"].length === 2 ? user["region"] : "") ||
+    (typeof user["localRegion"] === "string" && user["localRegion"].length === 2 ? user["localRegion"] : "") ||
     "";
-
-  // Try to get region from API if not found
-  let finalRegion = regionCode;
-  if (!finalRegion) {
-    finalRegion = await fetchRegionFromApi(username);
-  }
 
   return {
     username: (user["uniqueId"] as string) ?? username,
@@ -99,41 +78,6 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
   };
 }
 
-async function fetchRegionFromApi(username: string): Promise<string> {
-  try {
-    const endpoints = [
-      `https://www.tiktok.com/api/user/detail/?uniqueId=${username}&aid=1988&app_language=en`,
-      `https://m.tiktok.com/api/user/detail/?uniqueId=${username}&aid=1988`,
-    ];
-
-    for (const endpoint of endpoints) {
-      try {
-        const res = await axios.get(endpoint, {
-          headers: {
-            ...HEADERS,
-            "Accept": "application/json",
-          },
-          timeout: 8000,
-        });
-
-        const data = res.data as Record<string, unknown>;
-        const userInfo = (data["userInfo"] ?? {}) as Record<string, unknown>;
-        const user = (userInfo["user"] ?? {}) as Record<string, unknown>;
-
-        const region =
-          (user["region"] as string | undefined) ||
-          (user["localRegion"] as string | undefined) || "";
-
-        if (region) return region;
-      } catch {
-        continue;
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return "";
-}
 
 export function formatNumber(n: number): string {
   if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + "B";
