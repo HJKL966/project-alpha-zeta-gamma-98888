@@ -57,6 +57,17 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     throw new Error("الحساب غير موجود أو خاص.");
   }
 
+  // Debug: log all region-related fields from the user object
+  const regionRelated: Record<string, unknown> = {};
+  for (const k of Object.keys(user)) {
+    if (k.toLowerCase().includes("region") || k.toLowerCase().includes("country") || k.toLowerCase().includes("locale") || k.toLowerCase().includes("local")) {
+      regionRelated[k] = user[k];
+    }
+  }
+  console.log("[TikTok DEBUG] username:", user["uniqueId"]);
+  console.log("[TikTok DEBUG] region fields:", JSON.stringify(regionRelated));
+  console.log("[TikTok DEBUG] language:", user["language"]);
+
   // Only read region from the actual user object — never from global JSON
   const finalRegion =
     (typeof user["region"] === "string" && user["region"].length === 2 ? user["region"] : "") ||
