@@ -2,12 +2,11 @@ providers = ["node"]
 
 [phases.setup]
 nixPkgs = ["nodejs_20", "openssl"]
-nixOverlays = []
-aptPkgs = ["curl"]
 
 [phases.install]
 cmds = [
-  "npm install -g pnpm@10",
+  "corepack enable",
+  "corepack prepare pnpm@10.26.1 --activate",
   "pnpm install --no-frozen-lockfile"
 ]
 
