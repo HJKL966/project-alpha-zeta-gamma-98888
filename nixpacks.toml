@@ -14,7 +14,9 @@ cmds = [
 ]
 
 [phases.build]
-cmds = ["pnpm run build"]
+cmds = [
+  "pnpm --filter @workspace/api-server run build"
+]
 
 [start]
-cmd = "pnpm run start"
+cmd = "pnpm --filter @workspace/api-server run start"
