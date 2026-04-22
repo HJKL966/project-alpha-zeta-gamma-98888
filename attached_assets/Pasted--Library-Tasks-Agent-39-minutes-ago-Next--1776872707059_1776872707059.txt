@@ -1,0 +1,70 @@
+
+Library
+Tasks
+Agent
+مرحبا
+39 minutes ago
+مرحباً! أنا هنا لمساعدتك. ما الذي تود بناءه اليوم؟
+
+Next, I can add a full React web app with dashboard or landing page to this workspace. Would you like me to do that?
+أنا ربطت مستودع موجود في GitHub هل يمكنك تتشوف الملفات ؟
+34 minutes ago
+هذا https://github.com/HJKL966/project-alpha-zeta-gamma-98888.git
+33 minutes ago
+خليت المستودع عام
+28 minutes ago
+2026-04-22T15:27:41.155092319Z ==> Cloning from https://github.com/HJKL966/project-alpha-zeta-gamma-98888
+2026-04-22T15:27:42.016104288Z ==> Checking out commit b49b08cc795a41df80674bcd83eb78d707548c4a in branch main
+2026-04-22T15:27:43.211184797Z ==> Using Node.js version 24.14.1 (default)
+2026-04-22T15:27:43.24024404Z ==> Docs on specifying a Node.js version: https://render.com/docs/node-version
+2026-04-22T15:27:45.365563874Z ==> Running build command 'pnpm install --no-frozen-lockfile && pnpm run build'...
+2026-04-22T15:28:01.198087764Z
+2026-04-22T15:28:01.198119555Z > workspace@0.0.0 build /opt/render/project/src
+2026-04-22T15:28:01.198126525Z > pnpm run typecheck && pnpm -r --if-present run build
+2026-04-22T15:28:01.198131476Z
+2026-04-22T15:28:01.499528074Z
+2026-04-22T15:28:01.499556745Z > workspace@0.0.0 typecheck /opt/render/project/src
+2026-04-22T15:28:01.499562795Z > pnpm run typecheck:libs && pnpm -r --filter "./artifacts/**" --filter "./scripts" --if-present run typecheck
+2026-04-22T15:28:01.499568335Z
+2026-04-22T15:28:01.802411421Z
+2026-04-22T15:28:01.802436892Z > workspace@0.0.0 typecheck:libs /opt/render/project/src
+2026-04-22T15:28:01.802441702Z > tsc --build
+2026-04-22T15:28:01.802445203Z
+2026-04-22T15:28:10.132200575Z /opt/render/project/src/artifacts/mockup-sandbox:
+2026-04-22T15:28:10.132221906Z  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/mockup-sandbox@2.0.0 build: vite build
+2026-04-22T15:28:10.132225626Z Exit status 1
+2026-04-22T15:28:10.164258238Z  ELIFECYCLE  Command failed with exit code 1.
+2026-04-22T15:28:10.233167214Z ==> Build failed 😞
+2026-04-22T15:28:10.233187555Z ==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys
+15 minutes ago
+ممتاز البوت اشتغل لدي سؤال هل تقدر انت تعدل على الملفات الحاليه الموجود في GitHub ؟
+9 minutes ago
+اقصد انت تحدث الملف و أنا اروح على git الموجود في Replit
+8 minutes ago
+معومات الحساب
+الدوله :
+الاسم :
+اليوزر:
+ID:
+تاريخ إنشاء :
+آخر تغيير الاسم :
+آخر تغيير اليوزر :
+المتابعون :
+تابع :
+الاصدقاء:
+——————————
+TikTok : 1l.u
+7 minutes ago
+3 minutes ago
+2 minutes ago
+هذه المشكلة سببها أن الـ Pull من GitHub أحدث تعارضاً في ملفات إعداد Replit نفسه.
+
+الحل سريع جداً:
+
+اضغط "Recover original configuration files" الزر الموجود في الرسالة الحمراء.
+
+هذا سيعيد ملفات .replit و replit.nix لوضعها الصحيح ويصلح البيئة تلقائياً.
+The nix environment failed to build
+Check if your and files are configured properly:
+Optionally, we can back up the broken configuration files and recover the original ones:
+Git
