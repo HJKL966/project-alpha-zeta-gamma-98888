@@ -1,0 +1,68 @@
+Project settings
+General
+Project ID
+small-hat-32034537
+
+
+Project name
+
+
+Save
+Compute defaults
+These defaults will be used as the initial settings for any primary or read replica computes you create. Modifying these defaults does not alter the settings of any existing computes.
+Compute size: .25 ↔ 2 CU
+Scale to zero: 5 minutes (default)
+Upgrade to control compute size and scale to zero
+
+Modify defaults
+Instant restore
+Choose the length of your restore window. This setting enables instant restore for point-in-time recovery, time travel queries, and branching from past states.
+0h1h2h6h
+Need a larger restore window? Upgrade your account to get up to 30 days.
+
+Save
+Updates
+Keep your computes up to date with the latest Postgres version updates, security patches, and Neon features. Updates require a brief restart of your project's computes. Learn more
+
+On the Free Plan, Neon schedules updates as needed, typically completing in just a few seconds. For more control over when updates occur, upgrade your plan to set a specific time window for updates.
+
+Upgrade to customize
+Collaborators
+
+Invite
+Invite external collaborators to join this project. Existing collaborators are listed below.
+
+You haven't shared your project with anyone yet
+* This project is owned by Xxx. Manage member permissions on People page.
+HIPAA compliance
+Enable HIPAA compliance on this project to ensure that all protected health information (PHI) is protected in compliance with the Health Insurance Portability and Accountability Act (HIPAA). For more details about how we support HIPAA compliance, see our HIPAA Compliance guide
+
+HIPAA compliance disabled
+
+Enable
+Your current plan does not support HIPAA compliance. Change my plan.
+Networking
+
+Upgrade your plan to limit database access to trusted IP addresses.
+
+Upgrade your plan to limit database access using VPC.
+Logical Replication
+Logical replication lets you replicate data changes from Neon to external data services and platforms.
+
+Enabling logical replication:
+Restarts all computes in your Neon project, dropping any active connections
+Changes your Postgres wal_level setting to logical
+Can not be turned off once enabled
+
+Enable
+Transfer project
+Move this project to another organization you belong to. Transfers are instant, with no downtime.
+
+Or, create a claim link so another Neon account can take ownership.
+
+Transfer project
+Delete project
+
+Permanently delete project tiktok-bot. This action is not reversible. Proceed with caution.
+
+Delete project
