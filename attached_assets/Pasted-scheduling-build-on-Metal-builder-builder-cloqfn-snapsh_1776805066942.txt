@@ -1,0 +1,94 @@
+scheduling build on Metal builder "builder-cloqfn"
+[snapshot] received sha256:db36af42d7f6c9a2eaea44f9e215d8ed81c24577e6a2caf2b9e8a5638d0a90e0 md5:c0a42b6b6cefe5a66c9b114a7d6415e0
+receiving snapshot
+838.3 KB
+588ms
+found 'nixpacks.toml' at 'nixpacks.toml'
+analyzing snapshot
+838.3 KB
+16ms
+
+stage-0
+FROM ghcr.io/railwayapp/nixpacks:ubuntu-1745885067@sha256:d45c89d80e13d7ad0fd555b5130f22a866d9dd10e861f589932303ef2314c7de
+27ms
+uploading snapshot
+838.3 KB
+1ms
+unpacking archive
+1.4 MB
+28ms
+using build driver nixpacks-v1.41.0
+ 
+╔═══════════════ Nixpacks v1.41.0 ═══════════════╗
+║ setup      │ nodejs_20, openssl, curl          ║
+║────────────────────────────────────────────────║
+║ install    │ npm install -g pnpm@10            ║
+║            │ pnpm install --no-frozen-lockfile ║
+║────────────────────────────────────────────────║
+║ build      │ pnpm run build                    ║
+║────────────────────────────────────────────────║
+║ start      │ pnpm run start                    ║
+╚════════════════════════════════════════════════╝
+ 
+ 
+Saved output to:
+  snapshot-target-unpack
+
+internal
+load build definition from Dockerfile
+0ms
+
+internal
+load metadata for ghcr.io/railwayapp/nixpacks:ubuntu-1745885067
+311ms
+
+internal
+load .dockerignore
+0ms
+SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ARG "SESSION_SECRET") (line 11)(https://docs.docker.com/go/dockerfile/rule/secrets-used-in-arg-or-env/)
+ details: Sensitive data should not be used in the ARG or ENV commands
+SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ARG "TELEGRAM_BOT_TOKEN") (line 11)(https://docs.docker.com/go/dockerfile/rule/secrets-used-in-arg-or-env/)
+ details: Sensitive data should not be used in the ARG or ENV commands
+SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ENV "SESSION_SECRET") (line 12)(https://docs.docker.com/go/dockerfile/rule/secrets-used-in-arg-or-env/)
+ details: Sensitive data should not be used in the ARG or ENV commands
+SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ENV "TELEGRAM_BOT_TOKEN") (line 12)(https://docs.docker.com/go/dockerfile/rule/secrets-used-in-arg-or-env/)
+ details: Sensitive data should not be used in the ARG or ENV commands
+UndefinedVar: Usage of undefined variable '$NIXPACKS_PATH' (line 18)(https://docs.docker.com/go/dockerfile/rule/undefined-var/)
+ details: Variables should be defined before their use
+
+internal
+load build context
+0ms
+
+stage-0
+WORKDIR /app/ cached
+118ms
+
+stage-0
+COPY .nixpacks/nixpkgs-ffeebf0acf3ae8b29f8c7049cd911b9636efd7e7.nix .nixpacks/nixpkgs-ffeebf0acf3ae8b29f8c7049cd911b9636efd7e7.nix
+535ms
+
+stage-0
+RUN nix-env -if .nixpacks/nixpkgs-ffeebf0acf3ae8b29f8c7049cd911b9636efd7e7.nix && nix-collect-garbage -d
+42s
+28 store paths deleted, 247.83 MiB freed
+
+stage-0
+RUN sudo apt-get update && sudo apt-get install -y --no-install-recommends curl
+7s
+Setting up curl (8.5.0-2ubuntu10.8) ...
+
+stage-0
+COPY . /app/.
+285ms
+
+stage-0
+RUN npm install -g pnpm@10
+1s
+run `npm fund` for details
+
+stage-0
+RUN pnpm install --no-frozen-lockfile
+306ms
+/bin/bash: line 1: pnpm: command not found
+Build Failed: build daemon returned an error < failed to solve: process "/bin/bash -ol pipefail -c pnpm install --no-frozen-lockfile" did not complete successfully: exit code: 127 >
