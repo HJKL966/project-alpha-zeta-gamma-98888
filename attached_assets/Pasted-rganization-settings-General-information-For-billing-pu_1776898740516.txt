@@ -1,0 +1,64 @@
+rganization settings
+General information
+For billing purposes you can use the organization ID below.
+Organization name
+
+Organization ID
+org-lively-glitter-18016197
+
+
+
+Save
+API keys
+
+Create new API key
+As an admin of Xxx, you control your organization's API keys. These global keys provide admin-level access to all organization resources, including projects, members, and billing information.
+
+Automatic, instant branches of your database with every PR
+The GitHub integration automatically creates an API key and sets it as a repository secret.
+
+
+Connect to GitHub
+Click here to view your account specific API keys ->
+Domains
+Add and verify domains to automatically provision new users into your organization. Users who sign up with a verified domain will be added as members automatically.
+Domain
+
+
+Add domain
+No domains have been added yet. Add a domain to start auto-provisioning users.
+Early access
+Join the early access program to preview upcoming features for Xxx's projects. You can opt out anytime.
+Test new features before anyone else
+Shape the product with direct feedback
+Share feedback directly with our team. Join our Discord community for discussions in the #neon-early-access channel.
+
+Join early access
+HIPAA support
+Neon takes the security and privacy of your health-related information seriously. Enabling HIPAA support for your organization will allow HIPAA compliance to be enabled on individual projects. More details about how we support HIPAA compliance can be found in our HIPAA Compliance guide
+
+.
+You can also review our Business Associate Agreement (BAA)
+
+.
+HIPAA support disabled
+
+Enable
+Your current plan does not support HIPAA compliance. Change my plan.
+Private Networking
+Higher-tier plans only
+Route traffic from your app to Neon through a protected AWS internal network.
+Prerequisites
+The client application must be deployed in the same AWS region as the Neon database.
+A dedicated VPC endpoint to connect the Virtual Private Cloud (VPC) where the client application is deployed. View setup instructions
+Upgrade your plan to limit database access.
+Transfer projects
+You can only transfer projects to another organization you are a member of. Transfers are instant, with no downtime.
+
+Transfer projects
+Delete organization
+Before deleting this organization you need to:
+
+Delete its projects
+
+Delete organization
