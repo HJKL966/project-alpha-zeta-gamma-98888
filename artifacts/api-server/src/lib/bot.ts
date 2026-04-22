@@ -57,6 +57,8 @@ export function startBot() {
         `المتابعون : ${formatNumber(info.followers)}`,
         `تابع : ${formatNumber(info.following)}`,
         `الاصدقاء : ${formatNumber(info.friends)}`,
+        `——————————`,
+        `TikTok : 1l.u`,
       ].join("\n");
 
       await bot!.deleteMessage(chatId, loading.message_id);
