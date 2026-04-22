@@ -29,7 +29,7 @@ export function startBot() {
                 const chatId = msg.chat.id;
                 const username = msg.text.trim().replace(/^@/, "");
 
-                if (!username || username.length < 2) {
+                if (!username || username.length < 1) {
                         await bot!.sendMessage(chatId, "❌ أرسل يوزر صحيح.");
                         return;
                 }
@@ -43,23 +43,21 @@ export function startBot() {
                         const regionLabel = getRegionLabel(info.region);
                         const createDateStr = formatDate(info.createTime);
                         const lastNameChange = formatDate(info.nickNameModifyTime);
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      const lastUsernameChange = formatDate(info.uniqueIdModifyTime);
 
-      const reply = [
-        `معلومات الحساب`,
-        `الدوله : ${regionLabel}`,
-        `الاسم : ${info.nickname}${verifiedBadge}`,
-        `اليوزر : ${info.username}`,
-        `\u200F: ID ${info.id}`,
-        `تاريخ إنشاء : ${createDateStr}`,
-        `آخر تغيير الاسم : ${lastNameChange}`,
-        `آخر تغيير اليوزر : ${lastUsernameChange}`,
-        `المتابعون : ${formatNumber(info.followers)}`,
-        `تابع : ${formatNumber(info.following)}`,
-        `الاصدقاء : ${formatNumber(info.friends)}`,
-        `——————————`,
-        `TikTok : 1l.u`,
-      ].join("\n");
+                        const reply = [
+                                `معلومات الحساب`,
+                                `الدوله : ${regionLabel}`,
+                                `الاسم : ${info.nickname}${verifiedBadge}`,
+                                `اليوزر : ${info.username}`,
+                                `\u200F: ID ${info.id}`,
+                                `تاريخ إنشاء : ${createDateStr}`,
+                                `آخر تغيير الاسم : ${lastNameChange}`,
+                                `المتابعون : ${formatNumber(info.followers)}`,
+                                `تابع : ${formatNumber(info.following)}`,
+                                `الاصدقاء : ${formatNumber(info.friends)}`,
+                                `——————————`,
+                                `TikTok : 1l.u`,
+                        ].join("\n");
 
       await bot!.deleteMessage(chatId, loading.message_id);
       await bot!.sendMessage(chatId, reply, { disable_web_page_preview: true });

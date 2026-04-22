@@ -27,7 +27,7 @@ const HEADERS = {
 };
 
 export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
-  const url = `https://www.tiktok.com/@${username}`;
+  const url = `https://www.tiktok.com/@${encodeURIComponent(username)}`;
 
   const response = await axios.get(url, {
     headers: HEADERS,
