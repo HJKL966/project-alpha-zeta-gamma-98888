@@ -5,6 +5,7 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { startBot } from "./lib/bot";
 import { startKeepalive } from "./lib/keepalive";
+import { ensureSchema } from "./lib/migrate";
 
 const app: Express = express();
 
@@ -33,7 +34,7 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
 
-startBot();
+void ensureSchema().then(() => startBot());
 startKeepalive();
 
 export default app;
