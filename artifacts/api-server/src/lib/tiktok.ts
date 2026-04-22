@@ -164,22 +164,32 @@ export function formatNumber(n: number): string {
   return String(n);
 }
 
-const REGION_MAP: Record<string, string> = {
-  IQ: "🇮🇶 - IQ", SA: "🇸🇦 - SA", AE: "🇦🇪 - AE", EG: "🇪🇬 - EG",
-  US: "🇺🇸 - US", GB: "🇬🇧 - GB", TR: "🇹🇷 - TR", DE: "🇩🇪 - DE",
-  FR: "🇫🇷 - FR", IN: "🇮🇳 - IN", PK: "🇵🇰 - PK", JO: "🇯🇴 - JO",
-  LB: "🇱🇧 - LB", SY: "🇸🇾 - SY", PS: "🇵🇸 - PS", KW: "🇰🇼 - KW",
-  QA: "🇶🇦 - QA", BH: "🇧🇭 - BH", OM: "🇴🇲 - OM", YE: "🇾🇪 - YE",
-  LY: "🇱🇾 - LY", MA: "🇲🇦 - MA", TN: "🇹🇳 - TN", DZ: "🇩🇿 - DZ",
-  SD: "🇸🇩 - SD", RU: "🇷🇺 - RU", CN: "🇨🇳 - CN", BR: "🇧🇷 - BR",
-  MX: "🇲🇽 - MX", NG: "🇳🇬 - NG", ID: "🇮🇩 - ID", PH: "🇵🇭 - PH",
-  TH: "🇹🇭 - TH", VN: "🇻🇳 - VN", MM: "🇲🇲 - MM", MY: "🇲🇾 - MY",
-  SG: "🇸🇬 - SG",
-};
+function codeToFlag(code: string): string {
+  if (!code || code.length !== 2) return "🌍";
+  const cc = code.toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) return "🌍";
+  const codePoints = [...cc].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65);
+  return String.fromCodePoint(...codePoints);
+}
+
+let displayNames: Intl.DisplayNames | null = null;
+function getCountryName(code: string): string {
+  try {
+    if (!displayNames) {
+      displayNames = new Intl.DisplayNames(["ar"], { type: "region" });
+    }
+    return displayNames.of(code.toUpperCase()) ?? code.toUpperCase();
+  } catch {
+    return code.toUpperCase();
+  }
+}
 
 export function getRegionLabel(code: string): string {
   if (!code) return "غير متوفر";
-  return REGION_MAP[code.toUpperCase()] ?? `🌍 - ${code.toUpperCase()}`;
+  const cc = code.toUpperCase();
+  const flag = codeToFlag(cc);
+  const name = getCountryName(cc);
+  return `${flag} ${name} - ${cc}`;
 }
 
 export function formatDate(ts: number | undefined): string {
