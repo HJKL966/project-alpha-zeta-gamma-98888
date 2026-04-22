@@ -27,6 +27,7 @@ function escapeHtml(s: string): string {
 
 async function trackUser(msg: TelegramBot.Message, addPoint: boolean) {
   try {
+    if (!db) return;
     const tgId = msg.from?.id;
     if (!tgId) return;
     const username = msg.from?.username ?? null;
@@ -72,6 +73,10 @@ async function sendAdminPanel(chatId: number) {
 }
 
 async function showStats(chatId: number) {
+  if (!db) {
+    await bot!.sendMessage(chatId, "⚠️ قاعدة البيانات غير مفعّلة (DATABASE_URL غير مضبوط).");
+    return;
+  }
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(usersTable);
@@ -99,6 +104,7 @@ async function showStats(chatId: number) {
 }
 
 async function broadcastToAll(text: string): Promise<{ sent: number; failed: number }> {
+  if (!db) return { sent: 0, failed: 0 };
   const all = await db.select({ id: usersTable.telegramId }).from(usersTable);
   let sent = 0;
   let failed = 0;

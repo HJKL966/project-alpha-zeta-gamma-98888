@@ -1,0 +1,56 @@
+2026-04-22T22:28:31.426349698Z ==> Downloading cache...
+2026-04-22T22:28:31.465159027Z ==> Cloning from https://github.com/HJKL966/project-alpha-zeta-gamma-98888
+2026-04-22T22:28:32.499435728Z ==> Checking out commit a678fc2e2081953bc244dac7a5aa19d6bba29cfd in branch main
+2026-04-22T22:28:42.528681574Z ==> Downloaded 120MB in 2s. Extraction took 9s.
+2026-04-22T22:28:45.752036551Z ==> Using Node.js version 24.14.1 (default)
+2026-04-22T22:28:45.78037884Z ==> Docs on specifying a Node.js version: https://render.com/docs/node-version
+2026-04-22T22:28:45.914935904Z ==> Running build command 'pnpm install --no-frozen-lockfile && pnpm --filter @workspace/api-server run build'...
+2026-04-22T22:28:48.008484042Z 
+2026-04-22T22:28:48.008513654Z > @workspace/api-server@0.0.0 build /opt/render/project/src/artifacts/api-server
+2026-04-22T22:28:48.008522194Z > node ./build.mjs
+2026-04-22T22:28:48.008527564Z 
+2026-04-22T22:28:48.776511671Z 
+2026-04-22T22:28:48.776537092Z   dist/index.mjs                       4.0mb ⚠️
+2026-04-22T22:28:48.776542782Z   dist/pino-worker.mjs               153.4kb
+2026-04-22T22:28:48.776547232Z   dist/pino-file.mjs                 142.1kb
+2026-04-22T22:28:48.776551963Z   dist/pino-pretty.mjs               114.6kb
+2026-04-22T22:28:48.776556513Z   dist/thread-stream-worker.mjs        7.3kb
+2026-04-22T22:28:48.776560763Z   dist/index.mjs.map                   6.7mb
+2026-04-22T22:28:48.776565143Z   dist/pino-worker.mjs.map           256.9kb
+2026-04-22T22:28:48.776569473Z   dist/pino-file.mjs.map             229.0kb
+2026-04-22T22:28:48.776573893Z   dist/pino-pretty.mjs.map           203.9kb
+2026-04-22T22:28:48.776578133Z   dist/thread-stream-worker.mjs.map   12.0kb
+2026-04-22T22:28:48.776582344Z 
+2026-04-22T22:28:48.776587734Z ⚡ Done in 697ms
+2026-04-22T22:28:58.023944925Z ==> Uploading build...
+2026-04-22T22:29:07.481289445Z ==> Uploaded in 3.8s. Compression took 5.6s
+2026-04-22T22:29:07.626353861Z ==> Build successful 🎉
+2026-04-22T22:29:29.502585181Z ==> Deploying...
+2026-04-22T22:29:29.567604585Z ==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+2026-04-22T22:29:59.463273798Z     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+2026-04-22T22:29:59.463276148Z 
+2026-04-22T22:29:59.463278748Z Node.js v24.14.1
+2026-04-22T22:29:59.75577838Z /opt/render/project/src/artifacts/api-server:
+2026-04-22T22:29:59.755799761Z  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/api-server@0.0.0 start: `node --enable-source-maps ./dist/index.mjs`
+2026-04-22T22:29:59.755806712Z Exit status 1
+2026-04-22T22:30:03.850787922Z ==> Exited with status 1
+2026-04-22T22:30:03.853820771Z ==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys
+2026-04-22T22:30:09.934800253Z ==> Running 'pnpm --filter @workspace/api-server run start'
+2026-04-22T22:30:13.231905276Z 
+2026-04-22T22:30:13.231925787Z > @workspace/api-server@0.0.0 start /opt/render/project/src/artifacts/api-server
+2026-04-22T22:30:13.231929887Z > node --enable-source-maps ./dist/index.mjs
+2026-04-22T22:30:13.231931718Z 
+2026-04-22T22:30:18.027515341Z /opt/render/project/src/lib/db/src/index.ts:8
+2026-04-22T22:30:18.027537162Z   throw new Error(
+2026-04-22T22:30:18.027540523Z         ^
+2026-04-22T22:30:18.027542813Z 
+2026-04-22T22:30:18.027545993Z Error: DATABASE_URL must be set. Did you forget to provision a database?
+2026-04-22T22:30:18.027548993Z     at <anonymous> (/opt/render/project/src/lib/db/src/index.ts:8:9)
+2026-04-22T22:30:18.027551534Z     at ModuleJob.run (node:internal/modules/esm/module_job:430:25)
+2026-04-22T22:30:18.027554314Z     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:661:26)
+2026-04-22T22:30:18.027556894Z     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+2026-04-22T22:30:18.027559234Z 
+2026-04-22T22:30:18.027561624Z Node.js v24.14.1
+2026-04-22T22:30:18.225776166Z /opt/render/project/src/artifacts/api-server:
+2026-04-22T22:30:18.225794817Z  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/api-server@0.0.0 start: `node --enable-source-maps ./dist/index.mjs`
+2026-04-22T22:30:18.225800447Z Exit status 1
