@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: tiktok-telegram-bot
+    runtime: node
+    buildCommand: pnpm install --no-frozen-lockfile && pnpm --filter @workspace/api-server run build
+    startCommand: pnpm --filter @workspace/api-server run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
