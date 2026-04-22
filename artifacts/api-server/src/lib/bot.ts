@@ -70,7 +70,18 @@ export function startBot() {
         });
 
         bot.on("polling_error", (err) => {
-                logger.error({ err }, "Telegram polling error");
+                logger.error({ err }, "Telegram polling error — restarting in 10s");
+                setTimeout(() => {
+                        if (bot) {
+                                bot.stopPolling().then(() => {
+                                        bot!.startPolling();
+                                        logger.info("Telegram polling restarted");
+                                }).catch(() => {
+                                        stopBot();
+                                        startBot();
+                                });
+                        }
+                }, 10_000);
         });
 }
 
