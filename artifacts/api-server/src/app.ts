@@ -3,6 +3,8 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { startBot } from "./lib/bot";
+import { startKeepalive } from "./lib/keepalive";
 
 const app: Express = express();
 
@@ -30,5 +32,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
+
+startBot();
+startKeepalive();
 
 export default app;
