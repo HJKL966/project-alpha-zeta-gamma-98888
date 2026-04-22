@@ -43,27 +43,26 @@ export function startBot() {
       const regionLabel = getRegionLabel(info.region);
       const createDateStr = formatDate(info.createTime);
       const lastNameChange = formatDate(info.nickNameModifyTime);
+      const lastUsernameChange = formatDate(info.uniqueIdModifyTime);
 
-      const lines: string[] = [
-        `- Done sir .`,
-        ` - By : @YourBot Ch : @YourChannel .`,
-        ` - الدولة (${regionLabel})•`,
-        ` - الانشاء (${createDateStr})•`,
-        ` - ايدي (${info.id})•`,
-        ` - اخر تغيير للاسم (${lastNameChange})•`,
-        ` - متابعهم (${formatNumber(info.following)})•`,
-        ` - متابعين (${formatNumber(info.followers)})•`,
-        ` - الاسم (${info.nickname}${verifiedBadge})•`,
-      ];
-
-      if (info.bio) {
-        lines.push(` - البايو (${info.bio})•`);
-      }
-
-      lines.push(` - الاعجابات (${formatNumber(info.likes)})•`);
+      const reply = [
+        `معلومات الحساب`,
+        `الدوله : ${regionLabel}`,
+        `الاسم : ${info.nickname}${verifiedBadge}`,
+        `اليوزر: ${info.username}`,
+        `ID: ${info.id}`,
+        `تاريخ إنشاء : ${createDateStr}`,
+        `آخر تغيير الاسم : ${lastNameChange}`,
+        `آخر تغيير اليوزر : ${lastUsernameChange}`,
+        `المتابعون : ${formatNumber(info.followers)}`,
+        `تابع : ${formatNumber(info.following)}`,
+        `الاصدقاء: ${formatNumber(info.friends)}`,
+        `——————————`,
+        `TikTok : https://www.tiktok.com/@${info.username}`,
+      ].join("\n");
 
       await bot!.deleteMessage(chatId, loading.message_id);
-      await bot!.sendMessage(chatId, lines.join("\n"));
+      await bot!.sendMessage(chatId, reply, { disable_web_page_preview: true });
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : "خطأ غير معروف";
       logger.error({ err, username }, "Failed to fetch TikTok user");

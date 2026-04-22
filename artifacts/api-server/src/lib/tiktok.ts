@@ -6,6 +6,7 @@ export interface TikTokUserInfo {
   bio: string;
   following: number;
   followers: number;
+  friends: number;
   likes: number;
   verified: boolean;
   region: string;
@@ -13,6 +14,7 @@ export interface TikTokUserInfo {
   id: string;
   createTime?: number;
   nickNameModifyTime?: number;
+  uniqueIdModifyTime?: number;
 }
 
 const HEADERS = {
@@ -70,6 +72,7 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     bio: (user["signature"] as string) ?? "",
     following: Number((stats["followingCount"] as number | undefined) ?? 0),
     followers: Number((stats["followerCount"] as number | undefined) ?? 0),
+    friends: Number((stats["friendCount"] as number | undefined) ?? 0),
     likes: Number((stats["heartCount"] as number | undefined) ?? 0),
     verified: Boolean(user["verified"] ?? false),
     region,
@@ -77,6 +80,7 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     id: (user["id"] as string) ?? "",
     createTime: (user["createTime"] as number | undefined),
     nickNameModifyTime: (user["nickNameModifyTime"] as number | undefined),
+    uniqueIdModifyTime: (user["uniqueIdModifyTime"] as number | undefined),
   };
 }
 
