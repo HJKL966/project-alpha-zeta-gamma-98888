@@ -20,6 +20,7 @@ interface Strings {
   invalidUser: string;
   loading: string;
   accountInfo: string;
+  country: string;
   name: string;
   username: string;
   id: string;
@@ -59,6 +60,7 @@ export const T: Record<Lang, Strings> = {
     invalidUser: "❌ أرسل يوزر صحيح.",
     loading: "⏳ جاري البحث...",
     accountInfo: "معلومات الحساب",
+    country: "الدوله",
     name: "الاسم",
     username: "اليوزر",
     id: "ID",
@@ -96,6 +98,7 @@ export const T: Record<Lang, Strings> = {
     invalidUser: "❌ Please send a valid username.",
     loading: "⏳ Searching...",
     accountInfo: "Account info",
+    country: "Country",
     name: "Name",
     username: "Username",
     id: "ID",
@@ -133,6 +136,7 @@ export const T: Record<Lang, Strings> = {
     invalidUser: "❌ Envoyez un nom d'utilisateur valide.",
     loading: "⏳ Recherche...",
     accountInfo: "Infos du compte",
+    country: "Pays",
     name: "Nom",
     username: "Utilisateur",
     id: "ID",

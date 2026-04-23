@@ -271,7 +271,7 @@ export function startBot() {
 
       const reply = [
         `<b>${t.accountInfo}</b>`,
-        `${escapeHtml(regionLabel)}`,
+        `${t.country} : ${escapeHtml(regionLabel)}`,
         `${t.name} : ${escapeHtml(info.nickname)}${verifiedBadge}`,
         `${t.username} : ${escapeHtml(info.username)}`,
         `${t.id} : <code>${escapeHtml(info.id)}</code>`,
@@ -281,7 +281,7 @@ export function startBot() {
         `${t.following} : ${formatNumber(info.following)}`,
         `${t.friends} : ${formatNumber(info.friends)}`,
         `——————————`,
-        `<a href="${TIKTOK_URL}">TIKTOK</a>`,
+        `TikTok : <a href="${TIKTOK_URL}">${TIKTOK_URL.replace(/^https?:\/\//, "")}</a>`,
       ].join("\n");
 
       await bot!.deleteMessage(chatId, loading.message_id);
