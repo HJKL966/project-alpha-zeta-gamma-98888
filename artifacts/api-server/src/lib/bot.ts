@@ -1,7 +1,15 @@
 import TelegramBot from "node-telegram-bot-api";
 import { sql, desc } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
-import { getTikTokUser, formatNumber, getRegionLabel, formatDate } from "./tiktok";
+import {
+  getTikTokUser,
+  formatNumber,
+  getRegionLabel,
+  formatDate,
+  resolveUsernameById,
+  resolveUsernameFromVideoUrl,
+  searchUsers,
+} from "./tiktok";
 import { logger } from "./logger";
 import { detectLang, T, type Lang } from "./i18n";
 
@@ -115,6 +123,50 @@ async function showStats(chatId: number, lang: Lang) {
   await bot!.sendMessage(chatId, lines.join("\n"), { parse_mode: "HTML" });
 }
 
+async function fetchAndReply(msg: TelegramBot.Message, username: string) {
+  const chatId = msg.chat.id;
+  const lang = userLang.get(msg.from?.id ?? 0) ?? langOf(msg);
+  const t = T[lang];
+
+  const loading = await bot!.sendMessage(chatId, t.loading);
+  try {
+    const info = await getTikTokUser(username);
+    await trackUser(msg, true);
+
+    const verifiedBadge = info.verified ? " ✅" : "";
+    const regionLabel = getRegionLabel(info.region, t.notAvailable);
+    const createDateStr = formatDate(info.createTime, t.notAvailable);
+    const lastNameChange = formatDate(info.nickNameModifyTime, t.notAvailable);
+
+    const reply = [
+      `<b>${t.accountInfo}</b>`,
+      `${t.country} : ${escapeHtml(regionLabel)}`,
+      `${t.name} : ${escapeHtml(info.nickname)}${verifiedBadge}`,
+      `${t.username} : ${escapeHtml(info.username)}`,
+      `${t.id} : <code>${escapeHtml(info.id)}</code>`,
+      `${t.createdAt} : ${escapeHtml(createDateStr)}`,
+      `${t.lastNameChange} : ${escapeHtml(lastNameChange)}`,
+      `${t.followers} : ${formatNumber(info.followers)}`,
+      `${t.following} : ${formatNumber(info.following)}`,
+      `${t.friends} : ${formatNumber(info.friends)}`,
+      `——————————`,
+      `TikTok : <a href="${TIKTOK_URL}">${TIKTOK_URL.replace(/^https?:\/\//, "")}</a>`,
+    ].join("\n");
+
+    await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
+    await bot!.sendMessage(chatId, reply, {
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
+  } catch (err: unknown) {
+    const raw = err instanceof Error ? err.message : t.unknownError;
+    const errorMsg = raw === "__NOT_FOUND__" ? t.notFound : raw;
+    logger.error({ err, username }, "Failed to fetch TikTok user");
+    await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
+    await bot!.sendMessage(chatId, `❌ ${errorMsg}`);
+  }
+}
+
 async function broadcastToAll(text: string): Promise<{ sent: number; failed: number }> {
   if (!db) return { sent: 0, failed: 0 };
   const all = await db.select({ id: usersTable.telegramId }).from(usersTable);
@@ -194,6 +246,74 @@ export function startBot() {
     }
   });
 
+  bot.onText(/^\/id(?:\s+(.+))?$/, async (msg, match) => {
+    await trackUser(msg, false);
+    const lang = langOf(msg);
+    const t = T[lang];
+    const arg = (match?.[1] ?? "").trim();
+    if (!arg || !/^\d+$/.test(arg)) {
+      await bot!.sendMessage(msg.chat.id, t.cmdIdUsage);
+      return;
+    }
+    const loading = await bot!.sendMessage(msg.chat.id, t.searching);
+    const username = await resolveUsernameById(arg);
+    await bot!.deleteMessage(msg.chat.id, loading.message_id).catch(() => {});
+    if (!username) {
+      await bot!.sendMessage(msg.chat.id, t.idNotResolved);
+      return;
+    }
+    await fetchAndReply(msg, username);
+  });
+
+  bot.onText(/^\/video(?:\s+(.+))?$/, async (msg, match) => {
+    await trackUser(msg, false);
+    const lang = langOf(msg);
+    const t = T[lang];
+    const arg = (match?.[1] ?? "").trim();
+    if (!arg) {
+      await bot!.sendMessage(msg.chat.id, t.cmdVideoUsage);
+      return;
+    }
+    const loading = await bot!.sendMessage(msg.chat.id, t.searching);
+    const username = await resolveUsernameFromVideoUrl(arg);
+    await bot!.deleteMessage(msg.chat.id, loading.message_id).catch(() => {});
+    if (!username) {
+      await bot!.sendMessage(msg.chat.id, t.videoNotResolved);
+      return;
+    }
+    await fetchAndReply(msg, username);
+  });
+
+  bot.onText(/^\/search(?:\s+(.+))?$/, async (msg, match) => {
+    await trackUser(msg, false);
+    const lang = langOf(msg);
+    const t = T[lang];
+    const q = (match?.[1] ?? "").trim();
+    if (!q) {
+      await bot!.sendMessage(msg.chat.id, t.cmdSearchUsage);
+      return;
+    }
+    const loading = await bot!.sendMessage(msg.chat.id, t.searching);
+    const hits = await searchUsers(q);
+    await bot!.deleteMessage(msg.chat.id, loading.message_id).catch(() => {});
+    if (hits.length === 0) {
+      await bot!.sendMessage(msg.chat.id, t.searchNoResults);
+      return;
+    }
+    const lines = [t.searchResultsHeader(escapeHtml(q)), ""];
+    hits.forEach((h, i) => {
+      const badge = h.verified ? " ✅" : "";
+      const followers = h.followers > 0 ? ` — 👥 ${formatNumber(h.followers)}` : "";
+      const nick = h.nickname ? ` (${escapeHtml(h.nickname)})` : "";
+      lines.push(`${i + 1}. <code>@${escapeHtml(h.username)}</code>${nick}${badge}${followers}`);
+    });
+    lines.push("", `💡 ${t.searchHint}`);
+    await bot!.sendMessage(msg.chat.id, lines.join("\n"), {
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
+  });
+
   bot.onText(/^\/cancel$/, async (msg) => {
     const fromId = msg.from?.id;
     if (fromId === ADMIN_ID) {
@@ -258,44 +378,7 @@ export function startBot() {
       return;
     }
 
-    const loading = await bot!.sendMessage(chatId, t.loading);
-
-    try {
-      const info = await getTikTokUser(username);
-      await trackUser(msg, true);
-
-      const verifiedBadge = info.verified ? " ✅" : "";
-      const regionLabel = getRegionLabel(info.region, t.notAvailable);
-      const createDateStr = formatDate(info.createTime, t.notAvailable);
-      const lastNameChange = formatDate(info.nickNameModifyTime, t.notAvailable);
-
-      const reply = [
-        `<b>${t.accountInfo}</b>`,
-        `${t.country} : ${escapeHtml(regionLabel)}`,
-        `${t.name} : ${escapeHtml(info.nickname)}${verifiedBadge}`,
-        `${t.username} : ${escapeHtml(info.username)}`,
-        `${t.id} : <code>${escapeHtml(info.id)}</code>`,
-        `${t.createdAt} : ${escapeHtml(createDateStr)}`,
-        `${t.lastNameChange} : ${escapeHtml(lastNameChange)}`,
-        `${t.followers} : ${formatNumber(info.followers)}`,
-        `${t.following} : ${formatNumber(info.following)}`,
-        `${t.friends} : ${formatNumber(info.friends)}`,
-        `——————————`,
-        `TikTok : <a href="${TIKTOK_URL}">${TIKTOK_URL.replace(/^https?:\/\//, "")}</a>`,
-      ].join("\n");
-
-      await bot!.deleteMessage(chatId, loading.message_id);
-      await bot!.sendMessage(chatId, reply, {
-        parse_mode: "HTML",
-        disable_web_page_preview: true,
-      });
-    } catch (err: unknown) {
-      const raw = err instanceof Error ? err.message : t.unknownError;
-      const errorMsg = raw === "__NOT_FOUND__" ? t.notFound : raw;
-      logger.error({ err, username }, "Failed to fetch TikTok user");
-      await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
-      await bot!.sendMessage(chatId, `❌ ${errorMsg}`);
-    }
+    await fetchAndReply(msg, username);
   });
 
   bot.on("polling_error", (err) => {

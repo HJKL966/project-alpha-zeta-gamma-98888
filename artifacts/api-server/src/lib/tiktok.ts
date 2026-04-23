@@ -184,3 +184,131 @@ export function formatDate(ts: number | undefined, fallback: string): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
+
+export async function resolveUsernameById(userId: string): Promise<string | null> {
+  const candidates = [
+    `https://m.tiktok.com/h5/share/usr/${userId}.html`,
+    `https://www.tiktok.com/share/user/${userId}`,
+  ];
+  for (const url of candidates) {
+    try {
+      const r = await axios.get<string>(url, {
+        headers: BROWSER_HEADERS,
+        timeout: 15000,
+        maxRedirects: 5,
+        validateStatus: () => true,
+      });
+      const finalUrl = (r.request?.res?.responseUrl as string | undefined) ?? "";
+      const m1 = finalUrl.match(/@([A-Za-z0-9._]+)/);
+      if (m1 && m1[1]) return m1[1];
+      const m2 = (r.data ?? "").match(/"uniqueId"\s*:\s*"([A-Za-z0-9._]+)"/);
+      if (m2 && m2[1]) return m2[1];
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
+export async function resolveUsernameFromVideoUrl(rawUrl: string): Promise<string | null> {
+  let url = rawUrl.trim();
+  if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+
+  let direct = url.match(/tiktok\.com\/@([A-Za-z0-9._]+)/i);
+  if (direct && direct[1]) return direct[1];
+
+  try {
+    const r = await axios.get<string>(url, {
+      headers: BROWSER_HEADERS,
+      timeout: 15000,
+      maxRedirects: 5,
+      validateStatus: () => true,
+    });
+    const finalUrl = (r.request?.res?.responseUrl as string | undefined) ?? "";
+    direct = finalUrl.match(/tiktok\.com\/@([A-Za-z0-9._]+)/i);
+    if (direct && direct[1]) return direct[1];
+    const m = (r.data ?? "").match(/"author"[^}]*?"uniqueId"\s*:\s*"([A-Za-z0-9._]+)"/);
+    if (m && m[1]) return m[1];
+    const m2 = (r.data ?? "").match(/"uniqueId"\s*:\s*"([A-Za-z0-9._]+)"/);
+    if (m2 && m2[1]) return m2[1];
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export interface SearchHit {
+  username: string;
+  nickname: string;
+  followers: number;
+  verified: boolean;
+}
+
+export async function searchUsers(keyword: string): Promise<SearchHit[]> {
+  const url = `https://www.tiktok.com/search/user?q=${encodeURIComponent(keyword)}`;
+  try {
+    const r = await axios.get<string>(url, {
+      headers: BROWSER_HEADERS,
+      timeout: 15000,
+      maxRedirects: 5,
+      validateStatus: () => true,
+    });
+    const html = r.data ?? "";
+    const m = html.match(
+      /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/,
+    );
+    const hits: SearchHit[] = [];
+    if (m && m[1]) {
+      try {
+        const json = JSON.parse(m[1]) as Record<string, unknown>;
+        const scope = (json["__DEFAULT_SCOPE__"] ?? {}) as Record<string, unknown>;
+        for (const key of Object.keys(scope)) {
+          const node = scope[key];
+          if (!node || typeof node !== "object") continue;
+          const list = (node as Record<string, unknown>)["userList"] as unknown;
+          if (Array.isArray(list)) {
+            for (const item of list) {
+              const it = item as Record<string, unknown>;
+              const user = (it["user_info"] ?? it["user"] ?? {}) as Record<string, unknown>;
+              const uniqueId = user["unique_id"] ?? user["uniqueId"];
+              if (typeof uniqueId === "string" && uniqueId) {
+                hits.push({
+                  username: uniqueId,
+                  nickname:
+                    (user["nickname"] as string | undefined) ??
+                    (user["nick_name"] as string | undefined) ??
+                    "",
+                  followers: Number(
+                    (user["follower_count"] as number | undefined) ??
+                      (user["followerCount"] as number | undefined) ??
+                      0,
+                  ),
+                  verified: Boolean(user["verified"] ?? false),
+                });
+              }
+            }
+          }
+        }
+      } catch {
+        /* ignore parse errors */
+      }
+    }
+    if (hits.length === 0) {
+      const re = /"uniqueId"\s*:\s*"([A-Za-z0-9._]+)"[^}]*?"nickname"\s*:\s*"([^"]*)"/g;
+      let mm: RegExpExecArray | null;
+      const seen = new Set<string>();
+      while ((mm = re.exec(html)) !== null) {
+        const u = mm[1]!;
+        if (seen.has(u)) continue;
+        seen.add(u);
+        hits.push({ username: u, nickname: mm[2] ?? "", followers: 0, verified: false });
+        if (hits.length >= 10) break;
+      }
+    }
+    const dedup = new Map<string, SearchHit>();
+    for (const h of hits) if (!dedup.has(h.username)) dedup.set(h.username, h);
+    return Array.from(dedup.values()).slice(0, 10);
+  } catch {
+    return [];
+  }
+}

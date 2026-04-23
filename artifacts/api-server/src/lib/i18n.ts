@@ -51,12 +51,21 @@ interface Strings {
   pointsLabel: string;
   dbDisabled: string;
   notAvailable: string;
+  cmdIdUsage: string;
+  cmdVideoUsage: string;
+  cmdSearchUsage: string;
+  searching: string;
+  searchNoResults: string;
+  searchResultsHeader: (q: string) => string;
+  searchHint: string;
+  videoNotResolved: string;
+  idNotResolved: string;
 }
 
 export const T: Record<Lang, Strings> = {
   ar: {
     start:
-      "🎵 بوت معلومات تيك توك\n\nأرسل يوزر الحساب بدون @ وسأجيب لك معلوماته.\n\nمثال: username",
+      "🎵 بوت معلومات تيك توك\n\nأرسل يوزر الحساب بدون @ وسأجيب لك معلوماته.\nمثال: username\n\n📋 أوامر إضافية:\n/id <رقم_المعرف> — البحث برقم الحساب\n/video <رابط_فيديو> — جلب صاحب الفيديو\n/search <اسم> — البحث بالاسم",
     invalidUser: "❌ أرسل يوزر صحيح.",
     loading: "⏳ جاري البحث...",
     accountInfo: "معلومات الحساب",
@@ -91,10 +100,19 @@ export const T: Record<Lang, Strings> = {
     pointsLabel: "نقطة",
     dbDisabled: "⚠️ قاعدة البيانات غير مفعّلة.",
     notAvailable: "غير متوفر",
+    cmdIdUsage: "📌 الاستخدام: /id <رقم_المعرف>\nمثال: /id 6745196765562864646",
+    cmdVideoUsage: "📌 الاستخدام: /video <رابط_الفيديو>\nمثال: /video https://www.tiktok.com/@user/video/123",
+    cmdSearchUsage: "📌 الاستخدام: /search <اسم_للبحث>\nمثال: /search احمد",
+    searching: "🔎 جاري البحث...",
+    searchNoResults: "❌ لم يتم العثور على نتائج.",
+    searchResultsHeader: (q) => `🔍 نتائج البحث عن: <b>${q}</b>\nاضغط على اليوزر لاستعراض معلوماته:`,
+    searchHint: "أرسل اليوزر للحصول على المعلومات الكاملة.",
+    videoNotResolved: "❌ تعذر استخراج الحساب من الرابط. تأكد أنه رابط فيديو تيك توك صحيح.",
+    idNotResolved: "❌ تعذر العثور على حساب بهذا المعرف.",
   },
   en: {
     start:
-      "🎵 TikTok Info Bot\n\nSend a TikTok username without @ and I'll fetch its info.\n\nExample: username",
+      "🎵 TikTok Info Bot\n\nSend a TikTok username without @ and I'll fetch its info.\nExample: username\n\n📋 More commands:\n/id <user_id> — lookup by numeric ID\n/video <video_url> — get the video's author\n/search <name> — search by display name",
     invalidUser: "❌ Please send a valid username.",
     loading: "⏳ Searching...",
     accountInfo: "Account info",
@@ -129,10 +147,19 @@ export const T: Record<Lang, Strings> = {
     pointsLabel: "pts",
     dbDisabled: "⚠️ Database is not configured.",
     notAvailable: "N/A",
+    cmdIdUsage: "📌 Usage: /id <user_id>\nExample: /id 6745196765562864646",
+    cmdVideoUsage: "📌 Usage: /video <video_url>\nExample: /video https://www.tiktok.com/@user/video/123",
+    cmdSearchUsage: "📌 Usage: /search <name>\nExample: /search ahmed",
+    searching: "🔎 Searching...",
+    searchNoResults: "❌ No results found.",
+    searchResultsHeader: (q) => `🔍 Search results for: <b>${q}</b>\nTap a username to view its details:`,
+    searchHint: "Send the username to get full info.",
+    videoNotResolved: "❌ Could not extract account from URL. Make sure it's a valid TikTok video link.",
+    idNotResolved: "❌ Could not find an account with this ID.",
   },
   fr: {
     start:
-      "🎵 Bot d'infos TikTok\n\nEnvoyez un nom d'utilisateur TikTok sans @ et j'obtiendrai ses infos.\n\nExemple : username",
+      "🎵 Bot d'infos TikTok\n\nEnvoyez un nom d'utilisateur TikTok sans @ et j'obtiendrai ses infos.\nExemple : username\n\n📋 Commandes supplémentaires :\n/id <id_utilisateur> — recherche par ID\n/video <url_vidéo> — auteur de la vidéo\n/search <nom> — recherche par nom",
     invalidUser: "❌ Envoyez un nom d'utilisateur valide.",
     loading: "⏳ Recherche...",
     accountInfo: "Infos du compte",
@@ -167,5 +194,14 @@ export const T: Record<Lang, Strings> = {
     pointsLabel: "pts",
     dbDisabled: "⚠️ Base de données non configurée.",
     notAvailable: "N/D",
+    cmdIdUsage: "📌 Utilisation : /id <id_utilisateur>\nExemple : /id 6745196765562864646",
+    cmdVideoUsage: "📌 Utilisation : /video <url_vidéo>\nExemple : /video https://www.tiktok.com/@user/video/123",
+    cmdSearchUsage: "📌 Utilisation : /search <nom>\nExemple : /search ahmed",
+    searching: "🔎 Recherche...",
+    searchNoResults: "❌ Aucun résultat trouvé.",
+    searchResultsHeader: (q) => `🔍 Résultats pour : <b>${q}</b>\nAppuyez sur un nom pour voir ses détails :`,
+    searchHint: "Envoyez le nom d'utilisateur pour obtenir les infos complètes.",
+    videoNotResolved: "❌ Impossible d'extraire le compte. Vérifiez que c'est un lien vidéo TikTok valide.",
+    idNotResolved: "❌ Aucun compte trouvé avec cet ID.",
   },
 };
