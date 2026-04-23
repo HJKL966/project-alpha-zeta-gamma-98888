@@ -26,6 +26,7 @@ type AdminState =
 
 const adminState = new Map<number, AdminState>();
 const userLang = new Map<number, Lang>();
+const awaitingSearch = new Set<number>();
 
 function langOf(msg: TelegramBot.Message): Lang {
   const tgId = msg.from?.id;
@@ -284,6 +285,14 @@ export function startBot() {
     await fetchAndReply(msg, username);
   });
 
+  bot.onText(/^\/go1$/i, async (msg) => {
+    await trackUser(msg, false);
+    const lang = langOf(msg);
+    const fromId = msg.from?.id;
+    if (fromId) awaitingSearch.add(fromId);
+    await bot!.sendMessage(msg.chat.id, T[lang].go1Prompt);
+  });
+
   bot.onText(/^\/search(?:\s+(.+))?$/, async (msg, match) => {
     await trackUser(msg, false);
     const lang = langOf(msg);
@@ -316,9 +325,18 @@ export function startBot() {
 
   bot.onText(/^\/cancel$/, async (msg) => {
     const fromId = msg.from?.id;
+    if (!fromId) return;
+    const lang = langOf(msg);
+    let did = false;
+    if (awaitingSearch.has(fromId)) {
+      awaitingSearch.delete(fromId);
+      did = true;
+    }
     if (fromId === ADMIN_ID) {
-      const lang = langOf(msg);
       adminState.set(fromId, { type: "idle" });
+      did = true;
+    }
+    if (did) {
       await bot!.sendMessage(msg.chat.id, T[lang].cancelled);
     }
   });
@@ -378,35 +396,35 @@ export function startBot() {
       return;
     }
 
-    const looksLikeUsername = /^[A-Za-z0-9._]{2,24}$/.test(raw);
-    if (looksLikeUsername) {
-      await fetchAndReply(msg, raw);
+    if (fromId && awaitingSearch.has(fromId)) {
+      awaitingSearch.delete(fromId);
+      const loading = await bot!.sendMessage(chatId, t.searching);
+      const hits = await searchUsers(raw);
+      await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
+      if (hits.length === 0) {
+        await bot!.sendMessage(chatId, t.searchNoResults);
+        return;
+      }
+      if (hits.length === 1 && hits[0]) {
+        await fetchAndReply(msg, hits[0].username);
+        return;
+      }
+      const lines = [t.searchResultsHeader(escapeHtml(raw)), ""];
+      hits.forEach((h, i) => {
+        const badge = h.verified ? " ✅" : "";
+        const followers = h.followers > 0 ? ` — 👥 ${formatNumber(h.followers)}` : "";
+        const nick = h.nickname ? ` (${escapeHtml(h.nickname)})` : "";
+        lines.push(`${i + 1}. <code>@${escapeHtml(h.username)}</code>${nick}${badge}${followers}`);
+      });
+      lines.push("", `💡 ${t.searchHint}`);
+      await bot!.sendMessage(chatId, lines.join("\n"), {
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      });
       return;
     }
 
-    const loading = await bot!.sendMessage(chatId, t.searching);
-    const hits = await searchUsers(raw);
-    await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
-    if (hits.length === 0) {
-      await bot!.sendMessage(chatId, t.searchNoResults);
-      return;
-    }
-    if (hits.length === 1 && hits[0]) {
-      await fetchAndReply(msg, hits[0].username);
-      return;
-    }
-    const lines = [t.searchResultsHeader(escapeHtml(raw)), ""];
-    hits.forEach((h, i) => {
-      const badge = h.verified ? " ✅" : "";
-      const followers = h.followers > 0 ? ` — 👥 ${formatNumber(h.followers)}` : "";
-      const nick = h.nickname ? ` (${escapeHtml(h.nickname)})` : "";
-      lines.push(`${i + 1}. <code>@${escapeHtml(h.username)}</code>${nick}${badge}${followers}`);
-    });
-    lines.push("", `💡 ${t.searchHint}`);
-    await bot!.sendMessage(chatId, lines.join("\n"), {
-      parse_mode: "HTML",
-      disable_web_page_preview: true,
-    });
+    await fetchAndReply(msg, raw);
   });
 
   bot.on("polling_error", (err) => {

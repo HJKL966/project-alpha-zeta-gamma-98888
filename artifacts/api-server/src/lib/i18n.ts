@@ -60,12 +60,13 @@ interface Strings {
   searchHint: string;
   videoNotResolved: string;
   idNotResolved: string;
+  go1Prompt: string;
 }
 
 export const T: Record<Lang, Strings> = {
   ar: {
     start:
-      "🎵 بوت معلومات تيك توك\n\nأرسل يوزر الحساب بدون @ وسأجيب لك معلوماته.\nمثال: username\n\n📋 أوامر إضافية:\n/id <رقم_المعرف> — البحث برقم الحساب\n/video <رابط_فيديو> — جلب صاحب الفيديو\n/search <اسم> — البحث بالاسم",
+      "🎵 بوت معلومات تيك توك\n\nأرسل يوزر الحساب بدون @ وسأجيب لك معلوماته.\nمثال: username\n\n📋 أوامر إضافية:\n/go1 — البحث عن حساب باسم الشخص\n/id <رقم_المعرف> — البحث برقم الحساب\n/video <رابط_فيديو> — جلب صاحب الفيديو",
     invalidUser: "❌ أرسل يوزر صحيح.",
     loading: "⏳ جاري البحث...",
     accountInfo: "معلومات الحساب",
@@ -109,10 +110,11 @@ export const T: Record<Lang, Strings> = {
     searchHint: "أرسل اليوزر للحصول على المعلومات الكاملة.",
     videoNotResolved: "❌ تعذر استخراج الحساب من الرابط. تأكد أنه رابط فيديو تيك توك صحيح.",
     idNotResolved: "❌ تعذر العثور على حساب بهذا المعرف.",
+    go1Prompt: "✏️ أرسل الآن اسم الشخص للبحث عنه.\nأو /cancel للإلغاء.",
   },
   en: {
     start:
-      "🎵 TikTok Info Bot\n\nSend a TikTok username without @ and I'll fetch its info.\nExample: username\n\n📋 More commands:\n/id <user_id> — lookup by numeric ID\n/video <video_url> — get the video's author\n/search <name> — search by display name",
+      "🎵 TikTok Info Bot\n\nSend a TikTok username without @ and I'll fetch its info.\nExample: username\n\n📋 More commands:\n/go1 — search an account by person's name\n/id <user_id> — lookup by numeric ID\n/video <video_url> — get the video's author",
     invalidUser: "❌ Please send a valid username.",
     loading: "⏳ Searching...",
     accountInfo: "Account info",
@@ -156,10 +158,11 @@ export const T: Record<Lang, Strings> = {
     searchHint: "Send the username to get full info.",
     videoNotResolved: "❌ Could not extract account from URL. Make sure it's a valid TikTok video link.",
     idNotResolved: "❌ Could not find an account with this ID.",
+    go1Prompt: "✏️ Send the person's name to search.\nOr /cancel to abort.",
   },
   fr: {
     start:
-      "🎵 Bot d'infos TikTok\n\nEnvoyez un nom d'utilisateur TikTok sans @ et j'obtiendrai ses infos.\nExemple : username\n\n📋 Commandes supplémentaires :\n/id <id_utilisateur> — recherche par ID\n/video <url_vidéo> — auteur de la vidéo\n/search <nom> — recherche par nom",
+      "🎵 Bot d'infos TikTok\n\nEnvoyez un nom d'utilisateur TikTok sans @ et j'obtiendrai ses infos.\nExemple : username\n\n📋 Commandes supplémentaires :\n/go1 — rechercher un compte par nom\n/id <id_utilisateur> — recherche par ID\n/video <url_vidéo> — auteur de la vidéo",
     invalidUser: "❌ Envoyez un nom d'utilisateur valide.",
     loading: "⏳ Recherche...",
     accountInfo: "Infos du compte",
@@ -203,5 +206,6 @@ export const T: Record<Lang, Strings> = {
     searchHint: "Envoyez le nom d'utilisateur pour obtenir les infos complètes.",
     videoNotResolved: "❌ Impossible d'extraire le compte. Vérifiez que c'est un lien vidéo TikTok valide.",
     idNotResolved: "❌ Aucun compte trouvé avec cet ID.",
+    go1Prompt: "✏️ Envoyez le nom de la personne à rechercher.\nOu /cancel pour annuler.",
   },
 };
