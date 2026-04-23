@@ -371,14 +371,42 @@ export function startBot() {
       }
     }
 
-    const username = msg.text.trim().replace(/^@/, "");
+    const raw = msg.text.trim().replace(/^@/, "");
 
-    if (!username || username.length < 1) {
+    if (!raw || raw.length < 1) {
       await bot!.sendMessage(chatId, t.invalidUser);
       return;
     }
 
-    await fetchAndReply(msg, username);
+    const looksLikeUsername = /^[A-Za-z0-9._]{2,24}$/.test(raw);
+    if (looksLikeUsername) {
+      await fetchAndReply(msg, raw);
+      return;
+    }
+
+    const loading = await bot!.sendMessage(chatId, t.searching);
+    const hits = await searchUsers(raw);
+    await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
+    if (hits.length === 0) {
+      await bot!.sendMessage(chatId, t.searchNoResults);
+      return;
+    }
+    if (hits.length === 1 && hits[0]) {
+      await fetchAndReply(msg, hits[0].username);
+      return;
+    }
+    const lines = [t.searchResultsHeader(escapeHtml(raw)), ""];
+    hits.forEach((h, i) => {
+      const badge = h.verified ? " ✅" : "";
+      const followers = h.followers > 0 ? ` — 👥 ${formatNumber(h.followers)}` : "";
+      const nick = h.nickname ? ` (${escapeHtml(h.nickname)})` : "";
+      lines.push(`${i + 1}. <code>@${escapeHtml(h.username)}</code>${nick}${badge}${followers}`);
+    });
+    lines.push("", `💡 ${t.searchHint}`);
+    await bot!.sendMessage(chatId, lines.join("\n"), {
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
   });
 
   bot.on("polling_error", (err) => {
