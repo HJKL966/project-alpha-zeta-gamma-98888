@@ -396,6 +396,31 @@ export function startBot() {
       return;
     }
 
+    const isUrl = /^https?:\/\//i.test(raw) || /tiktok\.com|vm\.tiktok|vt\.tiktok/i.test(raw);
+    if (isUrl) {
+      const loading = await bot!.sendMessage(chatId, t.searching);
+      const username = await resolveUsernameFromVideoUrl(raw);
+      await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
+      if (!username) {
+        await bot!.sendMessage(chatId, t.videoNotResolved);
+        return;
+      }
+      await fetchAndReply(msg, username);
+      return;
+    }
+
+    if (/^\d{6,}$/.test(raw)) {
+      const loading = await bot!.sendMessage(chatId, t.searching);
+      const username = await resolveUsernameById(raw);
+      await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
+      if (!username) {
+        await bot!.sendMessage(chatId, t.idNotResolved);
+        return;
+      }
+      await fetchAndReply(msg, username);
+      return;
+    }
+
     if (fromId && awaitingSearch.has(fromId)) {
       awaitingSearch.delete(fromId);
       const loading = await bot!.sendMessage(chatId, t.searching);
