@@ -8,7 +8,9 @@ import {
   formatDate,
   resolveUsernameById,
   resolveUsernameFromVideoUrl,
+  getUserFromVideoUrl,
   searchUsers,
+  type TikTokUserInfo,
 } from "./tiktok";
 import { logger } from "./logger";
 import { detectLang, T, type Lang } from "./i18n";
@@ -124,6 +126,34 @@ async function showStats(chatId: number, lang: Lang) {
   await bot!.sendMessage(chatId, lines.join("\n"), { parse_mode: "HTML" });
 }
 
+async function sendUserInfo(msg: TelegramBot.Message, info: TikTokUserInfo) {
+  const chatId = msg.chat.id;
+  const lang = userLang.get(msg.from?.id ?? 0) ?? langOf(msg);
+  const t = T[lang];
+  const verifiedBadge = info.verified ? " ✅" : "";
+  const regionLabel = getRegionLabel(info.region, t.notAvailable);
+  const createDateStr = formatDate(info.createTime, t.notAvailable);
+  const lastNameChange = formatDate(info.nickNameModifyTime, t.notAvailable);
+  const reply = [
+    `<b>${t.accountInfo}</b>`,
+    `${t.country} : ${escapeHtml(regionLabel)}`,
+    `${t.name} : ${escapeHtml(info.nickname)}${verifiedBadge}`,
+    `${t.username} : ${escapeHtml(info.username)}`,
+    `${t.id} : <code>${escapeHtml(info.id)}</code>`,
+    `${t.createdAt} : ${escapeHtml(createDateStr)}`,
+    `${t.lastNameChange} : ${escapeHtml(lastNameChange)}`,
+    `${t.followers} : ${formatNumber(info.followers)}`,
+    `${t.following} : ${formatNumber(info.following)}`,
+    `${t.friends} : ${formatNumber(info.friends)}`,
+    `——————————`,
+    `TikTok : <a href="${TIKTOK_URL}">${TIKTOK_URL.replace(/^https?:\/\//, "")}</a>`,
+  ].join("\n");
+  await bot!.sendMessage(chatId, reply, {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+  });
+}
+
 async function fetchAndReply(msg: TelegramBot.Message, username: string) {
   const chatId = msg.chat.id;
   const lang = userLang.get(msg.from?.id ?? 0) ?? langOf(msg);
@@ -133,32 +163,8 @@ async function fetchAndReply(msg: TelegramBot.Message, username: string) {
   try {
     const info = await getTikTokUser(username);
     await trackUser(msg, true);
-
-    const verifiedBadge = info.verified ? " ✅" : "";
-    const regionLabel = getRegionLabel(info.region, t.notAvailable);
-    const createDateStr = formatDate(info.createTime, t.notAvailable);
-    const lastNameChange = formatDate(info.nickNameModifyTime, t.notAvailable);
-
-    const reply = [
-      `<b>${t.accountInfo}</b>`,
-      `${t.country} : ${escapeHtml(regionLabel)}`,
-      `${t.name} : ${escapeHtml(info.nickname)}${verifiedBadge}`,
-      `${t.username} : ${escapeHtml(info.username)}`,
-      `${t.id} : <code>${escapeHtml(info.id)}</code>`,
-      `${t.createdAt} : ${escapeHtml(createDateStr)}`,
-      `${t.lastNameChange} : ${escapeHtml(lastNameChange)}`,
-      `${t.followers} : ${formatNumber(info.followers)}`,
-      `${t.following} : ${formatNumber(info.following)}`,
-      `${t.friends} : ${formatNumber(info.friends)}`,
-      `——————————`,
-      `TikTok : <a href="${TIKTOK_URL}">${TIKTOK_URL.replace(/^https?:\/\//, "")}</a>`,
-    ].join("\n");
-
     await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
-    await bot!.sendMessage(chatId, reply, {
-      parse_mode: "HTML",
-      disable_web_page_preview: true,
-    });
+    await sendUserInfo(msg, info);
   } catch (err: unknown) {
     const raw = err instanceof Error ? err.message : t.unknownError;
     const errorMsg = raw === "__NOT_FOUND__" ? t.notFound : raw;
@@ -400,12 +406,19 @@ export function startBot() {
     if (isUrl) {
       const loading = await bot!.sendMessage(chatId, t.searching);
       const username = await resolveUsernameFromVideoUrl(raw);
+      if (username) {
+        await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
+        await fetchAndReply(msg, username);
+        return;
+      }
+      const info = await getUserFromVideoUrl(raw);
       await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
-      if (!username) {
+      if (!info) {
         await bot!.sendMessage(chatId, t.videoNotResolved);
         return;
       }
-      await fetchAndReply(msg, username);
+      await trackUser(msg, true);
+      await sendUserInfo(msg, info);
       return;
     }
 

@@ -213,10 +213,8 @@ export async function resolveUsernameById(userId: string): Promise<string | null
 export async function resolveUsernameFromVideoUrl(rawUrl: string): Promise<string | null> {
   let url = rawUrl.trim();
   if (!/^https?:\/\//i.test(url)) url = "https://" + url;
-
-  let direct = url.match(/tiktok\.com\/@([A-Za-z0-9._]+)/i);
-  if (direct && direct[1]) return direct[1];
-
+  const direct = url.match(/tiktok\.com\/@([A-Za-z0-9._]+)(?:\/|$)/i);
+  if (direct && direct[1] && !direct[1].startsWith("MS4wLj")) return direct[1];
   try {
     const r = await axios.get<string>(url, {
       headers: BROWSER_HEADERS,
@@ -225,16 +223,75 @@ export async function resolveUsernameFromVideoUrl(rawUrl: string): Promise<strin
       validateStatus: () => true,
     });
     const finalUrl = (r.request?.res?.responseUrl as string | undefined) ?? "";
-    direct = finalUrl.match(/tiktok\.com\/@([A-Za-z0-9._]+)/i);
-    if (direct && direct[1]) return direct[1];
-    const m = (r.data ?? "").match(/"author"[^}]*?"uniqueId"\s*:\s*"([A-Za-z0-9._]+)"/);
-    if (m && m[1]) return m[1];
-    const m2 = (r.data ?? "").match(/"uniqueId"\s*:\s*"([A-Za-z0-9._]+)"/);
-    if (m2 && m2[1]) return m2[1];
+    const m = finalUrl.match(/tiktok\.com\/@([A-Za-z0-9._]+)(?:\/|$)/i);
+    if (m && m[1] && !m[1].startsWith("MS4wLj")) return m[1];
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInfo | null> {
+  let url = rawUrl.trim();
+  if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+  try {
+    const r = await axios.get<string>(url, {
+      headers: BROWSER_HEADERS,
+      timeout: 15000,
+      maxRedirects: 5,
+      validateStatus: () => true,
+    });
+    const html = r.data ?? "";
+    const m = html.match(
+      /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/,
+    );
+    if (!m || !m[1]) return null;
+    const json = JSON.parse(m[1]) as Record<string, unknown>;
+    const scope = (json["__DEFAULT_SCOPE__"] ?? {}) as Record<string, unknown>;
+    const detail =
+      (scope["webapp.reflow.video.detail"] ?? scope["webapp.video-detail"] ?? {}) as Record<
+        string,
+        unknown
+      >;
+    const itemInfo = (detail["itemInfo"] ?? {}) as Record<string, unknown>;
+    const item = (itemInfo["itemStruct"] ?? {}) as Record<string, unknown>;
+    const author = (item["author"] ?? {}) as Record<string, unknown>;
+    const stats = (item["authorStats"] ?? item["stats"] ?? {}) as Record<string, unknown>;
+    if (!author["uniqueId"] && !author["id"]) return null;
+    return {
+      username: (author["uniqueId"] as string) ?? "",
+      nickname: (author["nickname"] as string) ?? "",
+      bio: (author["signature"] as string) ?? "",
+      following: Number(
+        (stats["followingCount"] as number | undefined) ??
+          (author["followingCount"] as number | undefined) ??
+          0,
+      ),
+      followers: Number(
+        (stats["followerCount"] as number | undefined) ??
+          (author["followerCount"] as number | undefined) ??
+          0,
+      ),
+      friends: Number((stats["friendCount"] as number | undefined) ?? 0),
+      likes: Number(
+        (stats["heartCount"] as number | undefined) ??
+          (author["heartCount"] as number | undefined) ??
+          0,
+      ),
+      verified: Boolean(author["verified"] ?? false),
+      region:
+        (typeof author["region"] === "string" ? author["region"] : "") ||
+        (typeof author["localRegion"] === "string" ? author["localRegion"] : "") ||
+        "",
+      avatar: (author["avatarLarger"] as string) ?? "",
+      id: (author["id"] as string) ?? "",
+      createTime: author["createTime"] as number | undefined,
+      nickNameModifyTime: author["nickNameModifyTime"] as number | undefined,
+      uniqueIdModifyTime: author["uniqueIdModifyTime"] as number | undefined,
+    };
   } catch {
     return null;
   }
-  return null;
 }
 
 export interface SearchHit {
