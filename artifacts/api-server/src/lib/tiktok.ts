@@ -152,7 +152,7 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
 
   const info = fromHtml ?? fromApi;
   if (!info) {
-    throw new Error("الحساب غير موجود أو خاص.");
+    throw new Error("__NOT_FOUND__");
   }
   return info;
 }
@@ -172,28 +172,14 @@ function codeToFlag(code: string): string {
   return String.fromCodePoint(...codePoints);
 }
 
-let displayNames: Intl.DisplayNames | null = null;
-function getCountryName(code: string): string {
-  try {
-    if (!displayNames) {
-      displayNames = new Intl.DisplayNames(["ar"], { type: "region" });
-    }
-    return displayNames.of(code.toUpperCase()) ?? code.toUpperCase();
-  } catch {
-    return code.toUpperCase();
-  }
-}
-
-export function getRegionLabel(code: string): string {
-  if (!code) return "غير متوفر";
+export function getRegionLabel(code: string, fallback: string): string {
+  if (!code) return fallback;
   const cc = code.toUpperCase();
-  const flag = codeToFlag(cc);
-  const name = getCountryName(cc);
-  return `${flag} ${name} - ${cc}`;
+  return `${codeToFlag(cc)} ${cc}`;
 }
 
-export function formatDate(ts: number | undefined): string {
-  if (!ts || ts === 0) return "غير متوفر";
+export function formatDate(ts: number | undefined, fallback: string): string {
+  if (!ts || ts === 0) return fallback;
   const d = new Date(ts * 1000);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;

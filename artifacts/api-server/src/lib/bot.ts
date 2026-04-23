@@ -1,11 +1,12 @@
 import TelegramBot from "node-telegram-bot-api";
-import { sql } from "drizzle-orm";
-import { eq, desc } from "drizzle-orm";
+import { sql, desc } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { getTikTokUser, formatNumber, getRegionLabel, formatDate } from "./tiktok";
 import { logger } from "./logger";
+import { detectLang, T, type Lang } from "./i18n";
 
 const ADMIN_ID = 5543925120;
+const TIKTOK_URL = "https://1l.u";
 
 let bot: TelegramBot | null = null;
 
@@ -16,6 +17,17 @@ type AdminState =
   | { type: "awaiting_target_message"; targetId: number };
 
 const adminState = new Map<number, AdminState>();
+const userLang = new Map<number, Lang>();
+
+function langOf(msg: TelegramBot.Message): Lang {
+  const tgId = msg.from?.id;
+  const detected = detectLang({
+    languageCode: msg.from?.language_code,
+    text: msg.text,
+  });
+  if (tgId) userLang.set(tgId, detected);
+  return detected;
+}
 
 function escapeHtml(s: string): string {
   return s
@@ -55,26 +67,28 @@ async function trackUser(msg: TelegramBot.Message, addPoint: boolean) {
   }
 }
 
-function adminPanelMarkup(): TelegramBot.SendMessageOptions {
+function adminPanelMarkup(lang: Lang): TelegramBot.SendMessageOptions {
+  const t = T[lang];
   return {
     reply_markup: {
       inline_keyboard: [
-        [{ text: "📊 إحصائيات", callback_data: "admin:stats" }],
-        [{ text: "📢 بث رسالة للجميع", callback_data: "admin:broadcast" }],
-        [{ text: "✉️ رسالة لمستخدم محدد", callback_data: "admin:dm" }],
-        [{ text: "❌ إغلاق", callback_data: "admin:close" }],
+        [{ text: t.btnStats, callback_data: "admin:stats" }],
+        [{ text: t.btnBroadcast, callback_data: "admin:broadcast" }],
+        [{ text: t.btnDm, callback_data: "admin:dm" }],
+        [{ text: t.btnClose, callback_data: "admin:close" }],
       ],
     },
   };
 }
 
-async function sendAdminPanel(chatId: number) {
-  await bot!.sendMessage(chatId, "🔧 لوحة الإدارة\nاختر إجراء:", adminPanelMarkup());
+async function sendAdminPanel(chatId: number, lang: Lang) {
+  await bot!.sendMessage(chatId, T[lang].adminPanelTitle, adminPanelMarkup(lang));
 }
 
-async function showStats(chatId: number) {
+async function showStats(chatId: number, lang: Lang) {
+  const t = T[lang];
   if (!db) {
-    await bot!.sendMessage(chatId, "⚠️ قاعدة البيانات غير مفعّلة (DATABASE_URL غير مضبوط).");
+    await bot!.sendMessage(chatId, t.dbDisabled);
     return;
   }
   const [{ count }] = await db
@@ -87,17 +101,15 @@ async function showStats(chatId: number) {
     .orderBy(desc(usersTable.points))
     .limit(10);
 
-  const lines = [
-    `👥 عدد المستخدمين: <b>${count}</b>`,
-    ``,
-    `🏆 أعلى 10 نقاط:`,
-  ];
+  const lines = [t.statsUserCount(count), ``, t.statsTopHeader];
   if (top.length === 0) {
-    lines.push("لا يوجد مستخدمون بعد.");
+    lines.push(t.statsEmpty);
   } else {
     top.forEach((u, i) => {
-      const name = u.username ? `@${escapeHtml(u.username)}` : escapeHtml(u.firstName ?? String(u.telegramId));
-      lines.push(`${i + 1}. ${name} — <code>${u.telegramId}</code> — ${u.points} نقطة`);
+      const name = u.username
+        ? `@${escapeHtml(u.username)}`
+        : escapeHtml(u.firstName ?? String(u.telegramId));
+      lines.push(`${i + 1}. ${name} — <code>${u.telegramId}</code> — ${u.points} ${t.pointsLabel}`);
     });
   }
   await bot!.sendMessage(chatId, lines.join("\n"), { parse_mode: "HTML" });
@@ -132,20 +144,16 @@ export function startBot() {
 
   bot.onText(/^\/start$/, async (msg) => {
     await trackUser(msg, false);
-    const chatId = msg.chat.id;
-    bot!.sendMessage(
-      chatId,
-      `🎵 بوت معلومات تيك توك\n\nأرسل يوزر الحساب بدون @ وسأجيب لك معلوماته.\n\nمثال: username`,
-    );
+    const lang = langOf(msg);
+    bot!.sendMessage(msg.chat.id, T[lang].start);
   });
 
   bot.onText(/^\/admin$/, async (msg) => {
     const fromId = msg.from?.id;
-    if (fromId !== ADMIN_ID) {
-      return;
-    }
+    if (fromId !== ADMIN_ID) return;
+    const lang = langOf(msg);
     adminState.set(fromId, { type: "idle" });
-    await sendAdminPanel(msg.chat.id);
+    await sendAdminPanel(msg.chat.id, lang);
   });
 
   bot.on("callback_query", async (cb) => {
@@ -156,20 +164,24 @@ export function startBot() {
     }
     const chatId = cb.message?.chat.id;
     if (!chatId) return;
+    const lang =
+      userLang.get(fromId) ??
+      detectLang({ languageCode: cb.from.language_code });
+    const t = T[lang];
     const data = cb.data ?? "";
 
     try {
       if (data === "admin:stats") {
         await bot!.answerCallbackQuery(cb.id);
-        await showStats(chatId);
+        await showStats(chatId, lang);
       } else if (data === "admin:broadcast") {
         adminState.set(fromId, { type: "awaiting_broadcast" });
         await bot!.answerCallbackQuery(cb.id);
-        await bot!.sendMessage(chatId, "✏️ أرسل الآن الرسالة المراد بثها للجميع.\nأو أرسل /cancel للإلغاء.");
+        await bot!.sendMessage(chatId, t.promptBroadcast);
       } else if (data === "admin:dm") {
         adminState.set(fromId, { type: "awaiting_target_id" });
         await bot!.answerCallbackQuery(cb.id);
-        await bot!.sendMessage(chatId, "✏️ أرسل ID المستخدم المستهدف.\nأو /cancel للإلغاء.");
+        await bot!.sendMessage(chatId, t.promptTargetId);
       } else if (data === "admin:close") {
         adminState.set(fromId, { type: "idle" });
         await bot!.answerCallbackQuery(cb.id);
@@ -185,8 +197,9 @@ export function startBot() {
   bot.onText(/^\/cancel$/, async (msg) => {
     const fromId = msg.from?.id;
     if (fromId === ADMIN_ID) {
+      const lang = langOf(msg);
       adminState.set(fromId, { type: "idle" });
-      await bot!.sendMessage(msg.chat.id, "تم الإلغاء.");
+      await bot!.sendMessage(msg.chat.id, T[lang].cancelled);
     }
   });
 
@@ -196,15 +209,17 @@ export function startBot() {
 
     const chatId = msg.chat.id;
     const fromId = msg.from?.id;
+    const lang = langOf(msg);
+    const t = T[lang];
 
     if (fromId === ADMIN_ID) {
       const state = adminState.get(fromId) ?? { type: "idle" };
 
       if (state.type === "awaiting_broadcast") {
         adminState.set(fromId, { type: "idle" });
-        const status = await bot!.sendMessage(chatId, "📢 جاري البث...");
+        const status = await bot!.sendMessage(chatId, t.broadcasting);
         const { sent, failed } = await broadcastToAll(msg.text);
-        await bot!.editMessageText(`✅ تم البث.\nنجح: ${sent}\nفشل: ${failed}`, {
+        await bot!.editMessageText(t.broadcastDone(sent, failed), {
           chat_id: chatId,
           message_id: status.message_id,
         });
@@ -214,11 +229,11 @@ export function startBot() {
       if (state.type === "awaiting_target_id") {
         const targetId = Number(msg.text.trim());
         if (!Number.isFinite(targetId) || targetId <= 0) {
-          await bot!.sendMessage(chatId, "❌ ID غير صالح. أعد المحاولة أو /cancel.");
+          await bot!.sendMessage(chatId, t.invalidId);
           return;
         }
         adminState.set(fromId, { type: "awaiting_target_message", targetId });
-        await bot!.sendMessage(chatId, `✏️ أرسل الآن الرسالة لإرسالها إلى ${targetId}.`);
+        await bot!.sendMessage(chatId, t.promptTargetMessage(targetId));
         return;
       }
 
@@ -227,10 +242,10 @@ export function startBot() {
         adminState.set(fromId, { type: "idle" });
         try {
           await bot!.sendMessage(target, msg.text);
-          await bot!.sendMessage(chatId, `✅ أُرسلت الرسالة إلى ${target}.`);
+          await bot!.sendMessage(chatId, t.dmSent(target));
         } catch (err) {
-          const m = err instanceof Error ? err.message : "خطأ غير معروف";
-          await bot!.sendMessage(chatId, `❌ فشل الإرسال: ${m}`);
+          const m = err instanceof Error ? err.message : t.unknownError;
+          await bot!.sendMessage(chatId, t.dmFailed(m));
         }
         return;
       }
@@ -239,34 +254,34 @@ export function startBot() {
     const username = msg.text.trim().replace(/^@/, "");
 
     if (!username || username.length < 1) {
-      await bot!.sendMessage(chatId, "❌ أرسل يوزر صحيح.");
+      await bot!.sendMessage(chatId, t.invalidUser);
       return;
     }
 
-    const loading = await bot!.sendMessage(chatId, "⏳ جاري البحث...");
+    const loading = await bot!.sendMessage(chatId, t.loading);
 
     try {
       const info = await getTikTokUser(username);
       await trackUser(msg, true);
 
       const verifiedBadge = info.verified ? " ✅" : "";
-      const regionLabel = getRegionLabel(info.region);
-      const createDateStr = formatDate(info.createTime);
-      const lastNameChange = formatDate(info.nickNameModifyTime);
+      const regionLabel = getRegionLabel(info.region, t.notAvailable);
+      const createDateStr = formatDate(info.createTime, t.notAvailable);
+      const lastNameChange = formatDate(info.nickNameModifyTime, t.notAvailable);
 
       const reply = [
-        `<b>معلومات الحساب</b>`,
-        `الدوله : ${escapeHtml(regionLabel)}`,
-        `الاسم : ${escapeHtml(info.nickname)}${verifiedBadge}`,
-        `اليوزر : ${escapeHtml(info.username)}`,
-        `ID : <code>${escapeHtml(info.id)}</code>`,
-        `تاريخ إنشاء : ${escapeHtml(createDateStr)}`,
-        `آخر تغيير الاسم : ${escapeHtml(lastNameChange)}`,
-        `المتابعون : ${formatNumber(info.followers)}`,
-        `تابع : ${formatNumber(info.following)}`,
-        `الاصدقاء : ${formatNumber(info.friends)}`,
+        `<b>${t.accountInfo}</b>`,
+        `${escapeHtml(regionLabel)}`,
+        `${t.name} : ${escapeHtml(info.nickname)}${verifiedBadge}`,
+        `${t.username} : ${escapeHtml(info.username)}`,
+        `${t.id} : <code>${escapeHtml(info.id)}</code>`,
+        `${t.createdAt} : ${escapeHtml(createDateStr)}`,
+        `${t.lastNameChange} : ${escapeHtml(lastNameChange)}`,
+        `${t.followers} : ${formatNumber(info.followers)}`,
+        `${t.following} : ${formatNumber(info.following)}`,
+        `${t.friends} : ${formatNumber(info.friends)}`,
         `——————————`,
-        `<a href="https://1l.u">TIKTOK</a>`,
+        `<a href="${TIKTOK_URL}">TIKTOK</a>`,
       ].join("\n");
 
       await bot!.deleteMessage(chatId, loading.message_id);
@@ -275,7 +290,8 @@ export function startBot() {
         disable_web_page_preview: true,
       });
     } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : "خطأ غير معروف";
+      const raw = err instanceof Error ? err.message : t.unknownError;
+      const errorMsg = raw === "__NOT_FOUND__" ? t.notFound : raw;
       logger.error({ err, username }, "Failed to fetch TikTok user");
       await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
       await bot!.sendMessage(chatId, `❌ ${errorMsg}`);
