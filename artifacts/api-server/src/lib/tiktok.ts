@@ -340,15 +340,35 @@ async function searchViaDuckDuckGo(keyword: string): Promise<string[]> {
 }
 
 export async function searchUsers(keyword: string): Promise<SearchHit[]> {
-  const usernames = await searchViaDuckDuckGo(keyword);
   const hits: SearchHit[] = [];
-  const limited = usernames.slice(0, 5);
-  const results = await Promise.allSettled(limited.map((u) => getTikTokUser(u)));
+  const seen = new Set<string>();
+
+  const directCandidate = keyword.trim().replace(/^@+/, "");
+  if (/^[A-Za-z0-9._]{2,24}$/.test(directCandidate)) {
+    try {
+      const info = await getTikTokUser(directCandidate);
+      seen.add(info.username.toLowerCase());
+      hits.push({
+        username: info.username,
+        nickname: info.nickname,
+        followers: info.followers,
+        verified: info.verified,
+      });
+    } catch {
+      /* not a direct hit, continue */
+    }
+  }
+
+  const usernames = await searchViaDuckDuckGo(keyword);
+  const remaining = usernames.filter((u) => !seen.has(u.toLowerCase())).slice(0, 5);
+  const results = await Promise.allSettled(remaining.map((u) => getTikTokUser(u)));
   for (let i = 0; i < results.length; i++) {
     const res = results[i]!;
-    const username = limited[i]!;
+    const username = remaining[i]!;
     if (res.status === "fulfilled") {
       const info = res.value;
+      if (seen.has(info.username.toLowerCase())) continue;
+      seen.add(info.username.toLowerCase());
       hits.push({
         username: info.username,
         nickname: info.nickname,
@@ -356,6 +376,8 @@ export async function searchUsers(keyword: string): Promise<SearchHit[]> {
         verified: info.verified,
       });
     } else {
+      if (seen.has(username.toLowerCase())) continue;
+      seen.add(username.toLowerCase());
       hits.push({ username, nickname: "", followers: 0, verified: false });
     }
   }
