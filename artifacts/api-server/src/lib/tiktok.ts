@@ -301,71 +301,63 @@ export interface SearchHit {
   verified: boolean;
 }
 
-export async function searchUsers(keyword: string): Promise<SearchHit[]> {
-  const url = `https://www.tiktok.com/search/user?q=${encodeURIComponent(keyword)}`;
-  try {
-    const r = await axios.get<string>(url, {
-      headers: BROWSER_HEADERS,
-      timeout: 15000,
-      maxRedirects: 5,
-      validateStatus: () => true,
-    });
-    const html = r.data ?? "";
-    const m = html.match(
-      /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/,
-    );
-    const hits: SearchHit[] = [];
-    if (m && m[1]) {
-      try {
-        const json = JSON.parse(m[1]) as Record<string, unknown>;
-        const scope = (json["__DEFAULT_SCOPE__"] ?? {}) as Record<string, unknown>;
-        for (const key of Object.keys(scope)) {
-          const node = scope[key];
-          if (!node || typeof node !== "object") continue;
-          const list = (node as Record<string, unknown>)["userList"] as unknown;
-          if (Array.isArray(list)) {
-            for (const item of list) {
-              const it = item as Record<string, unknown>;
-              const user = (it["user_info"] ?? it["user"] ?? {}) as Record<string, unknown>;
-              const uniqueId = user["unique_id"] ?? user["uniqueId"];
-              if (typeof uniqueId === "string" && uniqueId) {
-                hits.push({
-                  username: uniqueId,
-                  nickname:
-                    (user["nickname"] as string | undefined) ??
-                    (user["nick_name"] as string | undefined) ??
-                    "",
-                  followers: Number(
-                    (user["follower_count"] as number | undefined) ??
-                      (user["followerCount"] as number | undefined) ??
-                      0,
-                  ),
-                  verified: Boolean(user["verified"] ?? false),
-                });
-              }
-            }
-          }
-        }
-      } catch {
-        /* ignore parse errors */
-      }
-    }
-    if (hits.length === 0) {
-      const re = /"uniqueId"\s*:\s*"([A-Za-z0-9._]+)"[^}]*?"nickname"\s*:\s*"([^"]*)"/g;
-      let mm: RegExpExecArray | null;
-      const seen = new Set<string>();
-      while ((mm = re.exec(html)) !== null) {
-        const u = mm[1]!;
-        if (seen.has(u)) continue;
+async function searchViaDuckDuckGo(keyword: string): Promise<string[]> {
+  const usernames: string[] = [];
+  const seen = new Set<string>();
+  const endpoints = [
+    `https://html.duckduckgo.com/html/?q=${encodeURIComponent(`tiktok ${keyword}`)}`,
+    `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(`tiktok ${keyword}`)}`,
+  ];
+  for (const url of endpoints) {
+    try {
+      const r = await axios.get<string>(url, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+        timeout: 15000,
+        maxRedirects: 5,
+        validateStatus: () => true,
+      });
+      const html = r.data ?? "";
+      const re = /tiktok\.com(?:%2F|\/)@?(?:%40)?([A-Za-z0-9._]{2,24})/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(html)) !== null) {
+        const u = m[1]!;
+        if (seen.has(u) || u.startsWith("MS4wLj")) continue;
         seen.add(u);
-        hits.push({ username: u, nickname: mm[2] ?? "", followers: 0, verified: false });
-        if (hits.length >= 10) break;
+        usernames.push(u);
+        if (usernames.length >= 10) return usernames;
       }
+      if (usernames.length > 0) return usernames;
+    } catch {
+      /* try next */
     }
-    const dedup = new Map<string, SearchHit>();
-    for (const h of hits) if (!dedup.has(h.username)) dedup.set(h.username, h);
-    return Array.from(dedup.values()).slice(0, 10);
-  } catch {
-    return [];
   }
+  return usernames;
+}
+
+export async function searchUsers(keyword: string): Promise<SearchHit[]> {
+  const usernames = await searchViaDuckDuckGo(keyword);
+  const hits: SearchHit[] = [];
+  const limited = usernames.slice(0, 5);
+  const results = await Promise.allSettled(limited.map((u) => getTikTokUser(u)));
+  for (let i = 0; i < results.length; i++) {
+    const res = results[i]!;
+    const username = limited[i]!;
+    if (res.status === "fulfilled") {
+      const info = res.value;
+      hits.push({
+        username: info.username,
+        nickname: info.nickname,
+        followers: info.followers,
+        verified: info.verified,
+      });
+    } else {
+      hits.push({ username, nickname: "", followers: 0, verified: false });
+    }
+  }
+  return hits;
 }
