@@ -25,3 +25,11 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+
+## TikTok Telegram Bot — Image Lookup
+
+- The Telegram bot in `artifacts/api-server/src/lib/bot.ts` accepts photos and extracts a TikTok identifier.
+- Image OCR uses **tesseract.js** (Arabic + English) — no API keys required, runs fully local. See `src/lib/vision.ts`.
+- Tesseract is externalized in `build.mjs` (it loads WASM and worker scripts dynamically).
+- `parseTikTokIdentifier(text)` extracts: a TikTok URL, a long numeric ID, or a `@username` (Arabic letters supported, including diacritics). It also tolerates the OCR misreading "@" as "©".
+- Worker is lazy-initialized once and reused for all requests.

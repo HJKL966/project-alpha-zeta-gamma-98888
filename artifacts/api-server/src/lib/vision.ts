@@ -1,117 +1,111 @@
-import { GoogleGenAI } from "@google/genai";
+import { createWorker, type Worker } from "tesseract.js";
 import { logger } from "./logger";
-
-const baseUrl = process.env["AI_INTEGRATIONS_GEMINI_BASE_URL"];
-const apiKey = process.env["AI_INTEGRATIONS_GEMINI_API_KEY"];
-
-let client: GoogleGenAI | null = null;
-function getClient(): GoogleGenAI | null {
-  if (!baseUrl || !apiKey) return null;
-  if (!client) {
-    client = new GoogleGenAI({
-      apiKey,
-      httpOptions: { baseUrl },
-    });
-  }
-  return client;
-}
 
 export type VisionExtractResult = {
   username: string | null;
   numericId: string | null;
   videoUrl: string | null;
+  rawText?: string;
 };
 
-const SYSTEM_PROMPT = `Extract a TikTok identifier from this image.
-
-Look for ANY of these (in priority order):
-1. A TikTok video URL (tiktok.com/..., vm.tiktok.com/..., vt.tiktok.com/...). Copy it exactly.
-2. A long numeric user ID (16-19 digits).
-3. A username — usually shown next to "@" sign. Strip the "@". The username may contain Arabic letters, English letters, digits, dots, underscores. Preserve Arabic letters and diacritics EXACTLY as you see them.
-
-Important:
-- TikTok profile screenshots show a big display name (nickname) and a smaller "@handle" below it. The "@handle" is the username — extract that, not the display name.
-- If you see ONLY one name with "@", that is the username.
-- If the display name and the @handle look similar but slightly different (e.g. one has extra symbols/stars), the @handle is correct.
-- Always try to extract SOMETHING. Look at all text in the image including small fonts and corners.
-
-Reply with ONLY this JSON (no markdown, no commentary):
-{"username":"...","numericId":"...","videoUrl":"..."}
-
-Use null (without quotes) for fields you cannot find. Do not invent values.`;
-
 export function isVisionConfigured(): boolean {
-  return Boolean(baseUrl && apiKey);
+  return true;
+}
+
+let workerPromise: Promise<Worker> | null = null;
+
+async function getWorker(): Promise<Worker> {
+  if (!workerPromise) {
+    workerPromise = (async () => {
+      logger.info("OCR: initializing Tesseract worker (ara+eng)…");
+      const worker = await createWorker(["ara", "eng"]);
+      logger.info("OCR: Tesseract worker ready");
+      return worker;
+    })().catch((err) => {
+      workerPromise = null;
+      throw err;
+    });
+  }
+  return workerPromise;
+}
+
+const ARABIC_RANGES =
+  "\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF";
+const ARABIC_DIACRITICS = "\u064B-\u065F\u0670\u06D6-\u06ED";
+
+const URL_REGEX =
+  /https?:\/\/(?:www\.|vm\.|vt\.|m\.)?tiktok\.com\/[^\s'")]+/i;
+const SHORT_URL_REGEX = /https?:\/\/(?:vm|vt)\.tiktok\.com\/[^\s'")]+/i;
+const NUMERIC_ID_REGEX = /\b\d{16,19}\b/;
+// OCR sometimes misreads "@" as "©" — accept both.
+const AT_SIGN_CLASS = "[@©]";
+const USERNAME_REGEX = new RegExp(
+  `${AT_SIGN_CLASS}\\s*([A-Za-z0-9._${ARABIC_RANGES}][A-Za-z0-9._${ARABIC_RANGES}${ARABIC_DIACRITICS}]{1,40})`,
+  "u",
+);
+
+export function parseTikTokIdentifier(text: string): VisionExtractResult {
+  const result: VisionExtractResult = {
+    username: null,
+    numericId: null,
+    videoUrl: null,
+    rawText: text,
+  };
+
+  const cleaned = text
+    .replace(/[\u200B-\u200F\uFEFF\u202A-\u202E]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const urlMatch = cleaned.match(URL_REGEX) ?? cleaned.match(SHORT_URL_REGEX);
+  if (urlMatch) result.videoUrl = urlMatch[0];
+
+  const idMatch = cleaned.match(NUMERIC_ID_REGEX);
+  if (idMatch) result.numericId = idMatch[0];
+
+  const userMatch = cleaned.match(USERNAME_REGEX);
+  if (userMatch && userMatch[1]) {
+    let u = userMatch[1].trim();
+    u = u.replace(/[.\u060C\u061B,;:!?]+$/, "");
+    if (u.length >= 2) result.username = u;
+  }
+
+  return result;
 }
 
 export async function extractTikTokIdentifierFromImage(
   imageBuffer: Buffer,
   mimeType: string,
 ): Promise<VisionExtractResult> {
-  const ai = getClient();
-  if (!ai) {
-    logger.warn("Gemini client not configured — vision disabled");
-    return { username: null, numericId: null, videoUrl: null };
-  }
+  logger.info(
+    { mimeType, sizeKB: Math.round(imageBuffer.length / 1024) },
+    "Vision: running OCR",
+  );
 
-  const base64 = imageBuffer.toString("base64");
-  logger.info({ mimeType, sizeKB: Math.round(imageBuffer.length / 1024) }, "Vision: calling Gemini");
-
-  let response;
+  let text = "";
   try {
-    response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: SYSTEM_PROMPT },
-            {
-              inlineData: {
-                mimeType,
-                data: base64,
-              },
-            },
-          ],
-        },
-      ],
-      config: {
-        responseMimeType: "application/json",
-        temperature: 0,
-        maxOutputTokens: 1024,
-        thinkingConfig: { thinkingBudget: 0 },
-      },
-    });
+    const worker = await getWorker();
+    const { data } = await worker.recognize(imageBuffer);
+    text = data.text ?? "";
   } catch (err) {
-    logger.error({ err }, "Vision: Gemini call failed");
+    logger.error({ err }, "Vision: OCR failed");
     return { username: null, numericId: null, videoUrl: null };
   }
 
-  const text = response.text?.trim() ?? "";
-  logger.info({ rawResponse: text }, "Vision: Gemini raw response");
-  if (!text) {
-    return { username: null, numericId: null, videoUrl: null };
-  }
+  logger.info(
+    { textPreview: text.slice(0, 400), length: text.length },
+    "Vision: OCR text extracted",
+  );
 
-  try {
-    const cleaned = text.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
-    const parsed = JSON.parse(cleaned) as Partial<VisionExtractResult>;
-    const username =
-      typeof parsed.username === "string" && parsed.username.trim()
-        ? parsed.username.trim().replace(/^@/, "")
-        : null;
-    const numericId =
-      typeof parsed.numericId === "string" && /^\d{6,}$/.test(parsed.numericId.trim())
-        ? parsed.numericId.trim()
-        : null;
-    const videoUrl =
-      typeof parsed.videoUrl === "string" && parsed.videoUrl.trim()
-        ? parsed.videoUrl.trim()
-        : null;
-    logger.info({ username, numericId, videoUrl }, "Vision: extracted identifiers");
-    return { username, numericId, videoUrl };
-  } catch (err) {
-    logger.error({ err, text }, "Vision: failed to parse JSON response");
-    return { username: null, numericId: null, videoUrl: null };
-  }
+  const result = parseTikTokIdentifier(text);
+  logger.info(
+    {
+      username: result.username,
+      numericId: result.numericId,
+      videoUrl: result.videoUrl,
+    },
+    "Vision: parsed identifiers",
+  );
+
+  return result;
 }
