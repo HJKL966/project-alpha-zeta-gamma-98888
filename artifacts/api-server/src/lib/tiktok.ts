@@ -35,26 +35,41 @@ const API_HEADERS = {
   Cookie: "tt_webid_v2=7364759834132382213; ttwid=1%7CaGVsbG8%7C1714000000%7C; tt_chain_token=abc123def456;",
 };
 
-function extractFromHtml(html: string): TikTokUserInfo | null {
+type ExtractResult =
+  | { kind: "ok"; info: TikTokUserInfo }
+  | { kind: "banned" }
+  | { kind: "notfound" };
+
+function extractFromHtml(html: string): ExtractResult {
   const scriptMatch = html.match(
     /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/
   );
-  if (!scriptMatch || !scriptMatch[1]) return null;
+  if (!scriptMatch || !scriptMatch[1]) return { kind: "notfound" };
 
   let jsonData: Record<string, unknown>;
   try {
     jsonData = JSON.parse(scriptMatch[1]) as Record<string, unknown>;
   } catch {
-    return null;
+    return { kind: "notfound" };
   }
 
   const defaultScope = (jsonData["__DEFAULT_SCOPE__"] ?? {}) as Record<string, unknown>;
   const webappDetail = (defaultScope["webapp.user-detail"] ?? {}) as Record<string, unknown>;
+
+  const statusCode = webappDetail["statusCode"];
+  const statusMsg = webappDetail["statusMsg"];
+  if (
+    statusCode === 10221 ||
+    (typeof statusMsg === "string" && /banned/i.test(statusMsg))
+  ) {
+    return { kind: "banned" };
+  }
+
   const userInfo = (webappDetail["userInfo"] ?? {}) as Record<string, unknown>;
   const user = (userInfo["user"] ?? {}) as Record<string, unknown>;
   const stats = (userInfo["stats"] ?? {}) as Record<string, unknown>;
 
-  if (!user["uniqueId"]) return null;
+  if (!user["uniqueId"]) return { kind: "notfound" };
 
   const region =
     (typeof user["region"] === "string" && user["region"].length === 2 ? user["region"] : "") ||
@@ -62,26 +77,29 @@ function extractFromHtml(html: string): TikTokUserInfo | null {
     "";
 
   return {
-    username: (user["uniqueId"] as string),
-    nickname: (user["nickname"] as string) ?? "",
-    bio: (user["signature"] as string) ?? "",
-    following: Number((stats["followingCount"] as number | undefined) ?? 0),
-    followers: Number((stats["followerCount"] as number | undefined) ?? 0),
-    friends: Number((stats["friendCount"] as number | undefined) ?? 0),
-    likes: Number((stats["heartCount"] as number | undefined) ?? 0),
-    verified: Boolean(user["verified"] ?? false),
-    region,
-    avatar: (user["avatarLarger"] as string) ?? "",
-    id: (user["id"] as string) ?? "",
-    createTime: (user["createTime"] as number | undefined),
-    nickNameModifyTime: (user["nickNameModifyTime"] as number | undefined),
-    uniqueIdModifyTime: (user["uniqueIdModifyTime"] as number | undefined),
+    kind: "ok",
+    info: {
+      username: (user["uniqueId"] as string),
+      nickname: (user["nickname"] as string) ?? "",
+      bio: (user["signature"] as string) ?? "",
+      following: Number((stats["followingCount"] as number | undefined) ?? 0),
+      followers: Number((stats["followerCount"] as number | undefined) ?? 0),
+      friends: Number((stats["friendCount"] as number | undefined) ?? 0),
+      likes: Number((stats["heartCount"] as number | undefined) ?? 0),
+      verified: Boolean(user["verified"] ?? false),
+      region,
+      avatar: (user["avatarLarger"] as string) ?? "",
+      id: (user["id"] as string) ?? "",
+      createTime: (user["createTime"] as number | undefined),
+      nickNameModifyTime: (user["nickNameModifyTime"] as number | undefined),
+      uniqueIdModifyTime: (user["uniqueIdModifyTime"] as number | undefined),
+    },
   };
 }
 
-async function fetchViaHtml(username: string): Promise<TikTokUserInfo | null> {
+async function fetchViaHtml(username: string): Promise<ExtractResult> {
   try {
-    const url = `https://www.tiktok.com/@${username}`;
+    const url = `https://www.tiktok.com/@${encodeURIComponent(username)}`;
     const response = await axios.get<string>(url, {
       headers: BROWSER_HEADERS,
       timeout: 15000,
@@ -89,7 +107,7 @@ async function fetchViaHtml(username: string): Promise<TikTokUserInfo | null> {
     });
     return extractFromHtml(response.data);
   } catch {
-    return null;
+    return { kind: "notfound" };
   }
 }
 
@@ -147,14 +165,14 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     fetchViaApi(username),
   ]);
 
-  const fromHtml = htmlResult.status === "fulfilled" ? htmlResult.value : null;
+  const htmlExtract: ExtractResult =
+    htmlResult.status === "fulfilled" ? htmlResult.value : { kind: "notfound" };
   const fromApi = apiResult.status === "fulfilled" ? apiResult.value : null;
 
-  const info = fromHtml ?? fromApi;
-  if (!info) {
-    throw new Error("__NOT_FOUND__");
-  }
-  return info;
+  if (htmlExtract.kind === "ok") return htmlExtract.info;
+  if (fromApi) return fromApi;
+  if (htmlExtract.kind === "banned") throw new Error("__BANNED__");
+  throw new Error("__NOT_FOUND__");
 }
 
 export function formatNumber(n: number): string {

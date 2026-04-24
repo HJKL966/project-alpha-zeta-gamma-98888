@@ -64,6 +64,7 @@ interface Strings {
   imageAnalyzing: string;
   imageNoIdentifier: string;
   imageDisabled: string;
+  bannedOrRestricted: string;
 }
 
 export const T: Record<Lang, Strings> = {
@@ -116,6 +117,7 @@ export const T: Record<Lang, Strings> = {
     go1Prompt: "✏️ أرسل الآن اسم الشخص للبحث عنه.\nأو /cancel للإلغاء.",
     imageAnalyzing: "🖼️ جاري تحليل الصورة...",
     imageNoIdentifier: "❌ لم أتمكن من إيجاد يوزر أو معرف تيك توك في الصورة. حاول بصورة أوضح.",
+    bannedOrRestricted: "⚠️ تيك توك يحجب هذا الحساب من الـ API الخارجي.\n\nقد يكون السبب:\n• الحساب يستخدم حروفًا عربية في اليوزر (تيك توك يقيّد الوصول لهذي الحسابات).\n• الحساب موقوف أو محظور عالميًا.\n• تيك توك يحجب طلبات منطقة الخادم.\n\nجرّب نسخ رابط فيديو من الحساب أو أرسل رقم المعرف (ID) بدلًا من اليوزر.",
     imageDisabled: "⚠️ تحليل الصور غير مفعّل حالياً.",
   },
   en: {
@@ -167,6 +169,7 @@ export const T: Record<Lang, Strings> = {
     go1Prompt: "✏️ Send the person's name to search.\nOr /cancel to abort.",
     imageAnalyzing: "🖼️ Analyzing image...",
     imageNoIdentifier: "❌ Could not find a TikTok username or ID in the image. Try a clearer picture.",
+    bannedOrRestricted: "⚠️ TikTok blocks this account from the public API.\n\nPossible reasons:\n• Account uses Arabic characters in the handle (TikTok restricts API access for these).\n• The account is suspended or globally banned.\n• TikTok blocks requests from this server's region.\n\nTry sending a video link from the account, or its numeric ID instead.",
     imageDisabled: "⚠️ Image analysis is not enabled.",
   },
   fr: {
@@ -218,6 +221,7 @@ export const T: Record<Lang, Strings> = {
     go1Prompt: "✏️ Envoyez le nom de la personne à rechercher.\nOu /cancel pour annuler.",
     imageAnalyzing: "🖼️ Analyse de l'image...",
     imageNoIdentifier: "❌ Impossible de trouver un nom d'utilisateur ou ID TikTok dans l'image. Essayez une image plus claire.",
+    bannedOrRestricted: "⚠️ TikTok bloque ce compte sur l'API publique.\n\nRaisons possibles :\n• Le pseudo contient des caractères arabes (TikTok restreint l'accès à l'API).\n• Le compte est suspendu ou banni.\n• TikTok bloque la région du serveur.\n\nEssayez d'envoyer un lien vidéo du compte ou son ID numérique.",
     imageDisabled: "⚠️ L'analyse d'images n'est pas activée.",
   },
 };

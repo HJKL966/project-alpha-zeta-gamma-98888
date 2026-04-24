@@ -189,7 +189,12 @@ async function fetchAndReply(msg: TelegramBot.Message, username: string) {
     await sendUserInfo(msg, info);
   } catch (err: unknown) {
     const raw = err instanceof Error ? err.message : t.unknownError;
-    const errorMsg = raw === "__NOT_FOUND__" ? t.notFound : raw;
+    const errorMsg =
+      raw === "__NOT_FOUND__"
+        ? t.notFound
+        : raw === "__BANNED__"
+          ? t.bannedOrRestricted
+          : raw;
     logger.error({ err, username }, "Failed to fetch TikTok user");
     await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
     await bot!.sendMessage(chatId, `❌ ${errorMsg}`);
