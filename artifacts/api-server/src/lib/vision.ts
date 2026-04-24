@@ -22,24 +22,27 @@ export type VisionExtractResult = {
   videoUrl: string | null;
 };
 
-const SYSTEM_PROMPT = `You are an extractor that finds a TikTok account identifier in an image.
+const SYSTEM_PROMPT = `Extract a TikTok identifier from this image.
 
-The image may be a screenshot of a TikTok profile, a video page, a chat message, or any photo containing TikTok account info. The username may be in Arabic, English, numbers, dots, or underscores. Arabic usernames are valid (TikTok allows Arabic letters in usernames).
+Look for ANY of these (in priority order):
+1. A TikTok video URL (tiktok.com/..., vm.tiktok.com/..., vt.tiktok.com/...). Copy it exactly.
+2. A long numeric user ID (16-19 digits).
+3. A username — usually shown next to "@" sign. Strip the "@". The username may contain Arabic letters, English letters, digits, dots, underscores. Preserve Arabic letters and diacritics EXACTLY as you see them.
 
-Look carefully for ANY of:
-1. A TikTok username — usually shown as "@username" or as the handle under the display name. Extract WITHOUT the "@" prefix. Preserve Arabic characters exactly as written. Username may contain: arabic letters, latin letters, digits, dots, underscores.
-2. A numeric TikTok user ID (long number, usually 16-19 digits).
-3. A TikTok video URL (tiktok.com/@user/video/..., vm.tiktok.com/..., vt.tiktok.com/...).
+Important:
+- TikTok profile screenshots show a big display name (nickname) and a smaller "@handle" below it. The "@handle" is the username — extract that, not the display name.
+- If you see ONLY one name with "@", that is the username.
+- If the display name and the @handle look similar but slightly different (e.g. one has extra symbols/stars), the @handle is correct.
+- Always try to extract SOMETHING. Look at all text in the image including small fonts and corners.
 
-Return ONLY valid JSON, no markdown, no explanation:
-{"username": "<username or null>", "numericId": "<id or null>", "videoUrl": "<url or null>"}
+Reply with ONLY this JSON (no markdown, no commentary):
+{"username":"...","numericId":"...","videoUrl":"..."}
 
-Rules:
-- Set fields you cannot find to null.
-- If you see "@" before text, that text is the username. Strip the "@".
-- Do NOT confuse the display name (nickname) with the username. The username is what appears with "@" or under the display name in smaller text.
-- Do NOT invent values. If unsure, return null.
-- Preserve exact characters including Arabic, dots, underscores, and digits.`;
+Use null (without quotes) for fields you cannot find. Do not invent values.`;
+
+export function isVisionConfigured(): boolean {
+  return Boolean(baseUrl && apiKey);
+}
 
 export async function extractTikTokIdentifierFromImage(
   imageBuffer: Buffer,
@@ -52,36 +55,47 @@ export async function extractTikTokIdentifierFromImage(
   }
 
   const base64 = imageBuffer.toString("base64");
+  logger.info({ mimeType, sizeKB: Math.round(imageBuffer.length / 1024) }, "Vision: calling Gemini");
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [
-      {
-        role: "user",
-        parts: [
-          { text: SYSTEM_PROMPT },
-          {
-            inlineData: {
-              mimeType,
-              data: base64,
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: SYSTEM_PROMPT },
+            {
+              inlineData: {
+                mimeType,
+                data: base64,
+              },
             },
-          },
-        ],
+          ],
+        },
+      ],
+      config: {
+        responseMimeType: "application/json",
+        temperature: 0,
+        maxOutputTokens: 1024,
+        thinkingConfig: { thinkingBudget: 0 },
       },
-    ],
-    config: {
-      responseMimeType: "application/json",
-      maxOutputTokens: 8192,
-    },
-  });
+    });
+  } catch (err) {
+    logger.error({ err }, "Vision: Gemini call failed");
+    return { username: null, numericId: null, videoUrl: null };
+  }
 
   const text = response.text?.trim() ?? "";
+  logger.info({ rawResponse: text }, "Vision: Gemini raw response");
   if (!text) {
     return { username: null, numericId: null, videoUrl: null };
   }
 
   try {
-    const parsed = JSON.parse(text) as Partial<VisionExtractResult>;
+    const cleaned = text.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+    const parsed = JSON.parse(cleaned) as Partial<VisionExtractResult>;
     const username =
       typeof parsed.username === "string" && parsed.username.trim()
         ? parsed.username.trim().replace(/^@/, "")
@@ -94,9 +108,10 @@ export async function extractTikTokIdentifierFromImage(
       typeof parsed.videoUrl === "string" && parsed.videoUrl.trim()
         ? parsed.videoUrl.trim()
         : null;
+    logger.info({ username, numericId, videoUrl }, "Vision: extracted identifiers");
     return { username, numericId, videoUrl };
   } catch (err) {
-    logger.error({ err, text }, "Failed to parse vision JSON response");
+    logger.error({ err, text }, "Vision: failed to parse JSON response");
     return { username: null, numericId: null, videoUrl: null };
   }
 }

@@ -14,7 +14,7 @@ import {
 } from "./tiktok";
 import { logger } from "./logger";
 import { detectLang, T, type Lang } from "./i18n";
-import { extractTikTokIdentifierFromImage } from "./vision";
+import { extractTikTokIdentifierFromImage, isVisionConfigured } from "./vision";
 
 const ADMIN_ID = 5543925120;
 const TIKTOK_URL = "https://1l.u";
@@ -421,6 +421,11 @@ export function startBot() {
     const chatId = msg.chat.id;
     const lang = langOf(msg);
     const t = T[lang];
+
+    if (!isVisionConfigured()) {
+      await bot!.sendMessage(chatId, t.imageDisabled);
+      return;
+    }
 
     const largest = msg.photo[msg.photo.length - 1]!;
     const loading = await bot!.sendMessage(chatId, t.imageAnalyzing);
