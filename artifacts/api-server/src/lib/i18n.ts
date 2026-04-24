@@ -61,12 +61,15 @@ interface Strings {
   videoNotResolved: string;
   idNotResolved: string;
   go1Prompt: string;
+  imageAnalyzing: string;
+  imageNoIdentifier: string;
+  imageDisabled: string;
 }
 
 export const T: Record<Lang, Strings> = {
   ar: {
     start:
-      "🎵 بوت معلومات تيك توك\n\nأرسل لي أحد الآتي وسأجلب لك المعلومات تلقائياً:\n• يوزر الحساب (مثال: username)\n• رقم المعرف (مثال: 6745196765562864646)\n• رابط فيديو تيك توك",
+      "🎵 بوت معلومات تيك توك\n\nأرسل لي أحد الآتي وسأجلب لك المعلومات تلقائياً:\n• يوزر الحساب (مثال: username)\n• رقم المعرف (مثال: 6745196765562864646)\n• رابط فيديو تيك توك\n• 📷 صورة تحتوي على يوزر أو رابط",
     invalidUser: "❌ أرسل يوزر صحيح.",
     loading: "⏳ جاري البحث...",
     accountInfo: "معلومات الحساب",
@@ -111,10 +114,13 @@ export const T: Record<Lang, Strings> = {
     videoNotResolved: "❌ تعذر استخراج الحساب من الرابط. تأكد أنه رابط فيديو تيك توك صحيح.",
     idNotResolved: "❌ تعذر العثور على حساب بهذا المعرف.",
     go1Prompt: "✏️ أرسل الآن اسم الشخص للبحث عنه.\nأو /cancel للإلغاء.",
+    imageAnalyzing: "🖼️ جاري تحليل الصورة...",
+    imageNoIdentifier: "❌ لم أتمكن من إيجاد يوزر أو معرف تيك توك في الصورة. حاول بصورة أوضح.",
+    imageDisabled: "⚠️ تحليل الصور غير مفعّل حالياً.",
   },
   en: {
     start:
-      "🎵 TikTok Info Bot\n\nSend me any of the following and I'll fetch the info automatically:\n• Account username (e.g. username)\n• Numeric ID (e.g. 6745196765562864646)\n• TikTok video URL",
+      "🎵 TikTok Info Bot\n\nSend me any of the following and I'll fetch the info automatically:\n• Account username (e.g. username)\n• Numeric ID (e.g. 6745196765562864646)\n• TikTok video URL\n• 📷 An image containing a username or link",
     invalidUser: "❌ Please send a valid username.",
     loading: "⏳ Searching...",
     accountInfo: "Account info",
@@ -159,10 +165,13 @@ export const T: Record<Lang, Strings> = {
     videoNotResolved: "❌ Could not extract account from URL. Make sure it's a valid TikTok video link.",
     idNotResolved: "❌ Could not find an account with this ID.",
     go1Prompt: "✏️ Send the person's name to search.\nOr /cancel to abort.",
+    imageAnalyzing: "🖼️ Analyzing image...",
+    imageNoIdentifier: "❌ Could not find a TikTok username or ID in the image. Try a clearer picture.",
+    imageDisabled: "⚠️ Image analysis is not enabled.",
   },
   fr: {
     start:
-      "🎵 Bot d'infos TikTok\n\nEnvoyez-moi l'un des éléments suivants et je récupérerai les infos automatiquement :\n• Nom d'utilisateur (ex : username)\n• ID numérique (ex : 6745196765562864646)\n• Lien d'une vidéo TikTok",
+      "🎵 Bot d'infos TikTok\n\nEnvoyez-moi l'un des éléments suivants et je récupérerai les infos automatiquement :\n• Nom d'utilisateur (ex : username)\n• ID numérique (ex : 6745196765562864646)\n• Lien d'une vidéo TikTok\n• 📷 Une image contenant un nom d'utilisateur ou un lien",
     invalidUser: "❌ Envoyez un nom d'utilisateur valide.",
     loading: "⏳ Recherche...",
     accountInfo: "Infos du compte",
@@ -207,5 +216,8 @@ export const T: Record<Lang, Strings> = {
     videoNotResolved: "❌ Impossible d'extraire le compte. Vérifiez que c'est un lien vidéo TikTok valide.",
     idNotResolved: "❌ Aucun compte trouvé avec cet ID.",
     go1Prompt: "✏️ Envoyez le nom de la personne à rechercher.\nOu /cancel pour annuler.",
+    imageAnalyzing: "🖼️ Analyse de l'image...",
+    imageNoIdentifier: "❌ Impossible de trouver un nom d'utilisateur ou ID TikTok dans l'image. Essayez une image plus claire.",
+    imageDisabled: "⚠️ L'analyse d'images n'est pas activée.",
   },
 };

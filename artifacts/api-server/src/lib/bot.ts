@@ -14,6 +14,7 @@ import {
 } from "./tiktok";
 import { logger } from "./logger";
 import { detectLang, T, type Lang } from "./i18n";
+import { extractTikTokIdentifierFromImage } from "./vision";
 
 const ADMIN_ID = 5543925120;
 const TIKTOK_URL = "https://1l.u";
@@ -152,6 +153,27 @@ async function sendUserInfo(msg: TelegramBot.Message, info: TikTokUserInfo) {
     parse_mode: "HTML",
     disable_web_page_preview: true,
   });
+}
+
+async function downloadTelegramFile(fileId: string): Promise<{ buffer: Buffer; mimeType: string }> {
+  const file = await bot!.getFile(fileId);
+  const token = process.env["TELEGRAM_BOT_TOKEN"]!;
+  const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to download file: ${res.status}`);
+  const arrayBuf = await res.arrayBuffer();
+  const buffer = Buffer.from(arrayBuf);
+  const path = file.file_path ?? "";
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  const mimeType =
+    ext === "png"
+      ? "image/png"
+      : ext === "webp"
+        ? "image/webp"
+        : ext === "heic"
+          ? "image/heic"
+          : "image/jpeg";
+  return { buffer, mimeType };
 }
 
 async function fetchAndReply(msg: TelegramBot.Message, username: string) {
@@ -344,6 +366,80 @@ export function startBot() {
     }
     if (did) {
       await bot!.sendMessage(msg.chat.id, T[lang].cancelled);
+    }
+  });
+
+  async function processIdentifier(
+    msg: TelegramBot.Message,
+    raw: string,
+  ): Promise<boolean> {
+    const chatId = msg.chat.id;
+    const lang = userLang.get(msg.from?.id ?? 0) ?? langOf(msg);
+    const t = T[lang];
+    const cleaned = raw.trim().replace(/^@/, "");
+    if (!cleaned) return false;
+
+    const isUrl = /^https?:\/\//i.test(cleaned) || /tiktok\.com|vm\.tiktok|vt\.tiktok/i.test(cleaned);
+    if (isUrl) {
+      const loading = await bot!.sendMessage(chatId, t.searching);
+      const username = await resolveUsernameFromVideoUrl(cleaned);
+      if (username) {
+        await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
+        await fetchAndReply(msg, username);
+        return true;
+      }
+      const info = await getUserFromVideoUrl(cleaned);
+      await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
+      if (!info) {
+        await bot!.sendMessage(chatId, t.videoNotResolved);
+        return true;
+      }
+      await trackUser(msg, true);
+      await sendUserInfo(msg, info);
+      return true;
+    }
+
+    if (/^\d{6,}$/.test(cleaned)) {
+      const loading = await bot!.sendMessage(chatId, t.searching);
+      const username = await resolveUsernameById(cleaned);
+      await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
+      if (!username) {
+        await bot!.sendMessage(chatId, t.idNotResolved);
+        return true;
+      }
+      await fetchAndReply(msg, username);
+      return true;
+    }
+
+    await fetchAndReply(msg, cleaned);
+    return true;
+  }
+
+  bot.on("photo", async (msg) => {
+    if (!msg.photo || msg.photo.length === 0) return;
+    await trackUser(msg, false);
+    const chatId = msg.chat.id;
+    const lang = langOf(msg);
+    const t = T[lang];
+
+    const largest = msg.photo[msg.photo.length - 1]!;
+    const loading = await bot!.sendMessage(chatId, t.imageAnalyzing);
+    try {
+      const { buffer, mimeType } = await downloadTelegramFile(largest.file_id);
+      const result = await extractTikTokIdentifierFromImage(buffer, mimeType);
+      await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
+
+      const candidate = result.videoUrl ?? result.numericId ?? result.username;
+      if (!candidate) {
+        await bot!.sendMessage(chatId, t.imageNoIdentifier);
+        return;
+      }
+      await processIdentifier(msg, candidate);
+    } catch (err) {
+      logger.error({ err }, "Photo processing failed");
+      await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
+      const raw = err instanceof Error ? err.message : t.unknownError;
+      await bot!.sendMessage(chatId, `❌ ${raw}`);
     }
   });
 
