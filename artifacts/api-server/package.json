@@ -20,8 +20,7 @@
     "express": "^5",
     "node-telegram-bot-api": "^0.67.0",
     "pino": "^9",
-    "pino-http": "^10",
-    "tesseract.js": "^7.0.0"
+    "pino-http": "^10"
   },
   "devDependencies": {
     "@types/cheerio": "^1.0.0",

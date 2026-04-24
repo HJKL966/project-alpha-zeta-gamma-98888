@@ -29,7 +29,7 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 ## TikTok Telegram Bot — Image Lookup
 
 - The Telegram bot in `artifacts/api-server/src/lib/bot.ts` accepts photos and extracts a TikTok identifier.
-- Image OCR uses **tesseract.js** (Arabic + English) — no API keys required, runs fully local. See `src/lib/vision.ts`.
-- Tesseract is externalized in `build.mjs` (it loads WASM and worker scripts dynamically).
-- `parseTikTokIdentifier(text)` extracts: a TikTok URL, a long numeric ID, or a `@username` (Arabic letters supported, including diacritics). It also tolerates the OCR misreading "@" as "©".
-- Worker is lazy-initialized once and reused for all requests.
+- Image OCR uses **OCR.space API** (https://ocr.space/ocrapi) — free tier 25,000 requests/month, no server-side CPU/RAM cost. Designed for free hosting tiers (Render Free, Railway, etc.).
+- Requires `OCR_SPACE_API_KEY` env var (free key from https://ocr.space/ocrapi/freekey).
+- See `src/lib/vision.ts`. Calls Arabic OCR engine first; falls back to English if no identifier is parsed.
+- `parseTikTokIdentifier(text)` extracts: a TikTok URL, a long numeric ID, or a `@username` (Arabic letters supported, including diacritics). Tolerates OCR misreading "@" as "©".

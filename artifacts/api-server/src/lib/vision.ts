@@ -1,4 +1,3 @@
-import { createWorker, type Worker } from "tesseract.js";
 import { logger } from "./logger";
 
 export type VisionExtractResult = {
@@ -8,25 +7,11 @@ export type VisionExtractResult = {
   rawText?: string;
 };
 
+const OCR_SPACE_API_KEY = process.env["OCR_SPACE_API_KEY"];
+const OCR_SPACE_ENDPOINT = "https://api.ocr.space/parse/image";
+
 export function isVisionConfigured(): boolean {
-  return true;
-}
-
-let workerPromise: Promise<Worker> | null = null;
-
-async function getWorker(): Promise<Worker> {
-  if (!workerPromise) {
-    workerPromise = (async () => {
-      logger.info("OCR: initializing Tesseract worker (ara+eng)…");
-      const worker = await createWorker(["ara", "eng"]);
-      logger.info("OCR: Tesseract worker ready");
-      return worker;
-    })().catch((err) => {
-      workerPromise = null;
-      throw err;
-    });
-  }
-  return workerPromise;
+  return Boolean(OCR_SPACE_API_KEY);
 }
 
 const ARABIC_RANGES =
@@ -37,7 +22,6 @@ const URL_REGEX =
   /https?:\/\/(?:www\.|vm\.|vt\.|m\.)?tiktok\.com\/[^\s'")]+/i;
 const SHORT_URL_REGEX = /https?:\/\/(?:vm|vt)\.tiktok\.com\/[^\s'")]+/i;
 const NUMERIC_ID_REGEX = /\b\d{16,19}\b/;
-// OCR sometimes misreads "@" as "©" — accept both.
 const AT_SIGN_CLASS = "[@©]";
 const USERNAME_REGEX = new RegExp(
   `${AT_SIGN_CLASS}\\s*([A-Za-z0-9._${ARABIC_RANGES}][A-Za-z0-9._${ARABIC_RANGES}${ARABIC_DIACRITICS}]{1,40})`,
@@ -73,38 +57,97 @@ export function parseTikTokIdentifier(text: string): VisionExtractResult {
   return result;
 }
 
+type OcrSpaceResponse = {
+  ParsedResults?: Array<{ ParsedText?: string; ErrorMessage?: string }>;
+  IsErroredOnProcessing?: boolean;
+  ErrorMessage?: string | string[];
+  OCRExitCode?: number;
+};
+
+async function runOcrSpace(
+  imageBuffer: Buffer,
+  mimeType: string,
+  language: "ara" | "eng",
+): Promise<string> {
+  const apiKey = OCR_SPACE_API_KEY!;
+  const form = new FormData();
+  const blob = new Blob([new Uint8Array(imageBuffer)], { type: mimeType });
+  const ext = mimeType.includes("png")
+    ? "png"
+    : mimeType.includes("webp")
+      ? "webp"
+      : "jpg";
+  form.append("file", blob, `image.${ext}`);
+  form.append("language", language);
+  form.append("OCREngine", "2");
+  form.append("scale", "true");
+  form.append("isTable", "false");
+  form.append("detectOrientation", "true");
+
+  const res = await fetch(OCR_SPACE_ENDPOINT, {
+    method: "POST",
+    headers: { apikey: apiKey },
+    body: form,
+  });
+
+  if (!res.ok) {
+    throw new Error(`OCR.space HTTP ${res.status}: ${await res.text()}`);
+  }
+
+  const json = (await res.json()) as OcrSpaceResponse;
+  if (json.IsErroredOnProcessing) {
+    const msg = Array.isArray(json.ErrorMessage)
+      ? json.ErrorMessage.join("; ")
+      : json.ErrorMessage ?? "unknown OCR error";
+    throw new Error(`OCR.space error: ${msg}`);
+  }
+
+  const text = json.ParsedResults?.map((p) => p.ParsedText ?? "").join("\n") ?? "";
+  return text;
+}
+
 export async function extractTikTokIdentifierFromImage(
   imageBuffer: Buffer,
   mimeType: string,
 ): Promise<VisionExtractResult> {
-  logger.info(
-    { mimeType, sizeKB: Math.round(imageBuffer.length / 1024) },
-    "Vision: running OCR",
-  );
-
-  let text = "";
-  try {
-    const worker = await getWorker();
-    const { data } = await worker.recognize(imageBuffer);
-    text = data.text ?? "";
-  } catch (err) {
-    logger.error({ err }, "Vision: OCR failed");
+  if (!OCR_SPACE_API_KEY) {
+    logger.warn("OCR.space API key not set — vision disabled");
     return { username: null, numericId: null, videoUrl: null };
   }
 
   logger.info(
-    { textPreview: text.slice(0, 400), length: text.length },
-    "Vision: OCR text extracted",
+    { mimeType, sizeKB: Math.round(imageBuffer.length / 1024) },
+    "Vision: calling OCR.space",
   );
 
-  const result = parseTikTokIdentifier(text);
+  let text = "";
+  try {
+    text = await runOcrSpace(imageBuffer, mimeType, "ara");
+  } catch (err) {
+    logger.error({ err }, "Vision: OCR.space (ara) failed");
+  }
+
+  let result = parseTikTokIdentifier(text);
+  const hasMatch = result.videoUrl || result.numericId || result.username;
+
+  if (!hasMatch) {
+    try {
+      const engText = await runOcrSpace(imageBuffer, mimeType, "eng");
+      const combined = `${text}\n${engText}`;
+      result = parseTikTokIdentifier(combined);
+    } catch (err) {
+      logger.error({ err }, "Vision: OCR.space (eng) fallback failed");
+    }
+  }
+
   logger.info(
     {
       username: result.username,
       numericId: result.numericId,
       videoUrl: result.videoUrl,
+      textPreview: (result.rawText ?? "").slice(0, 200),
     },
-    "Vision: parsed identifiers",
+    "Vision: extracted identifiers",
   );
 
   return result;
