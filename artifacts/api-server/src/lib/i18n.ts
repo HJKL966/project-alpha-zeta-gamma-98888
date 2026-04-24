@@ -66,7 +66,7 @@ interface Strings {
 export const T: Record<Lang, Strings> = {
   ar: {
     start:
-      "🎵 بوت معلومات تيك توك\n\nأرسل يوزر الحساب بدون @ وسأجيب لك معلوماته.\nمثال: username\n\n📋 أوامر إضافية:\n/go1 — البحث عن حساب باسم الشخص\n/id <رقم_المعرف> — البحث برقم الحساب\n/video <رابط_فيديو> — جلب صاحب الفيديو",
+      "🎵 بوت معلومات تيك توك\n\nأرسل لي أحد الآتي وسأجلب لك المعلومات تلقائياً:\n• يوزر الحساب (مثال: username)\n• رقم المعرف (مثال: 6745196765562864646)\n• رابط فيديو تيك توك",
     invalidUser: "❌ أرسل يوزر صحيح.",
     loading: "⏳ جاري البحث...",
     accountInfo: "معلومات الحساب",
@@ -114,7 +114,7 @@ export const T: Record<Lang, Strings> = {
   },
   en: {
     start:
-      "🎵 TikTok Info Bot\n\nSend a TikTok username without @ and I'll fetch its info.\nExample: username\n\n📋 More commands:\n/go1 — search an account by person's name\n/id <user_id> — lookup by numeric ID\n/video <video_url> — get the video's author",
+      "🎵 TikTok Info Bot\n\nSend me any of the following and I'll fetch the info automatically:\n• Account username (e.g. username)\n• Numeric ID (e.g. 6745196765562864646)\n• TikTok video URL",
     invalidUser: "❌ Please send a valid username.",
     loading: "⏳ Searching...",
     accountInfo: "Account info",
@@ -162,7 +162,7 @@ export const T: Record<Lang, Strings> = {
   },
   fr: {
     start:
-      "🎵 Bot d'infos TikTok\n\nEnvoyez un nom d'utilisateur TikTok sans @ et j'obtiendrai ses infos.\nExemple : username\n\n📋 Commandes supplémentaires :\n/go1 — rechercher un compte par nom\n/id <id_utilisateur> — recherche par ID\n/video <url_vidéo> — auteur de la vidéo",
+      "🎵 Bot d'infos TikTok\n\nEnvoyez-moi l'un des éléments suivants et je récupérerai les infos automatiquement :\n• Nom d'utilisateur (ex : username)\n• ID numérique (ex : 6745196765562864646)\n• Lien d'une vidéo TikTok",
     invalidUser: "❌ Envoyez un nom d'utilisateur valide.",
     loading: "⏳ Recherche...",
     accountInfo: "Infos du compte",
