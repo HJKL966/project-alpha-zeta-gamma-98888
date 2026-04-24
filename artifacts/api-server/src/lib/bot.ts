@@ -386,6 +386,12 @@ export function startBot() {
 
     const isUrl = /^https?:\/\//i.test(cleaned) || /tiktok\.com|vm\.tiktok|vt\.tiktok/i.test(cleaned);
     if (isUrl) {
+      const secUidMatch = cleaned.match(/@(MS4wLjABAAAA[A-Za-z0-9_-]{20,})/);
+      if (secUidMatch && secUidMatch[1]) {
+        await fetchAndReply(msg, secUidMatch[1]);
+        return true;
+      }
+
       const loading = await bot!.sendMessage(chatId, t.searching);
       const username = await resolveUsernameFromVideoUrl(cleaned);
       if (username) {

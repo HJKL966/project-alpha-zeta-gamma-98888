@@ -160,6 +160,17 @@ async function fetchViaApi(username: string): Promise<TikTokUserInfo | null> {
 }
 
 export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
+  const isSecUid = /^MS4wLjABAAAA[A-Za-z0-9_-]{20,}$/.test(username);
+
+  if (isSecUid) {
+    const htmlExtract = await fetchViaHtml(username).catch(
+      () => ({ kind: "notfound" as const }),
+    );
+    if (htmlExtract.kind === "ok") return htmlExtract.info;
+    if (htmlExtract.kind === "banned") throw new Error("__BANNED__");
+    throw new Error("__NOT_FOUND__");
+  }
+
   const [htmlResult, apiResult] = await Promise.allSettled([
     fetchViaHtml(username),
     fetchViaApi(username),
