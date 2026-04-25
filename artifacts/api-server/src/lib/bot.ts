@@ -565,38 +565,6 @@ export function startBot() {
       return;
     }
 
-    const isUrl = /^https?:\/\//i.test(raw) || /tiktok\.com|vm\.tiktok|vt\.tiktok/i.test(raw);
-    if (isUrl) {
-      const loading = await bot!.sendMessage(chatId, t.searching);
-      const username = await resolveUsernameFromVideoUrl(raw);
-      if (username) {
-        await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
-        await fetchAndReply(msg, username);
-        return;
-      }
-      const info = await getUserFromVideoUrl(raw);
-      await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
-      if (!info) {
-        await bot!.sendMessage(chatId, t.videoNotResolved);
-        return;
-      }
-      await trackUser(msg, true);
-      await sendUserInfo(msg, info);
-      return;
-    }
-
-    if (/^\d{6,}$/.test(raw)) {
-      const loading = await bot!.sendMessage(chatId, t.searching);
-      const username = await resolveUsernameById(raw);
-      await bot!.deleteMessage(chatId, loading.message_id).catch(() => {});
-      if (!username) {
-        await bot!.sendMessage(chatId, t.idNotResolved);
-        return;
-      }
-      await fetchAndReply(msg, username);
-      return;
-    }
-
     if (fromId && awaitingSearch.has(fromId)) {
       awaitingSearch.delete(fromId);
       const loading = await bot!.sendMessage(chatId, t.searching);
@@ -625,7 +593,7 @@ export function startBot() {
       return;
     }
 
-    await fetchAndReply(msg, raw);
+    await processIdentifier(msg, raw);
   });
 
   let restartTimer: NodeJS.Timeout | null = null;
