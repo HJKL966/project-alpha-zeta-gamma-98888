@@ -19,6 +19,25 @@ import { extractTikTokIdentifierFromImage, isVisionConfigured } from "./vision";
 const ADMIN_ID = 5543925120;
 const TIKTOK_URL = "https://1l.u";
 
+export const WEBHOOK_PATH = "/api/telegram/webhook";
+
+export function handleWebhookUpdate(
+  update: unknown,
+  secretHeader: string | undefined,
+): { ok: boolean; status: number } {
+  const expected = process.env["WEBHOOK_SECRET"];
+  if (!expected) return { ok: false, status: 503 };
+  if (secretHeader !== expected) return { ok: false, status: 401 };
+  if (!bot) return { ok: false, status: 503 };
+  try {
+    bot.processUpdate(update as TelegramBot.Update);
+    return { ok: true, status: 200 };
+  } catch (err) {
+    logger.error({ err }, "processUpdate failed");
+    return { ok: false, status: 500 };
+  }
+}
+
 let bot: TelegramBot | null = null;
 
 type AdminState =
@@ -225,18 +244,32 @@ export function startBot() {
     return;
   }
 
-  bot = new TelegramBot(token, { polling: false });
-  bot
-    .deleteWebHook({ drop_pending_updates: false })
-    .catch((err: unknown) => {
-      logger.warn({ err }, "deleteWebHook failed (continuing)");
-    })
-    .finally(() => {
-      bot!.startPolling().catch((err: unknown) => {
-        logger.error({ err }, "startPolling failed");
+  const webhookUrl = process.env["WEBHOOK_URL"];
+  const webhookSecret = process.env["WEBHOOK_SECRET"];
+
+  if (webhookUrl && webhookSecret) {
+    bot = new TelegramBot(token, { polling: false });
+    const fullUrl = `${webhookUrl.replace(/\/+$/, "")}${WEBHOOK_PATH}`;
+    bot
+      .setWebHook(fullUrl, { secret_token: webhookSecret })
+      .then(() => logger.info({ fullUrl }, "Telegram bot started (webhook)"))
+      .catch((err: unknown) => {
+        logger.error({ err }, "setWebHook failed");
       });
-      logger.info("Telegram bot started (polling)");
-    });
+  } else {
+    bot = new TelegramBot(token, { polling: false });
+    bot
+      .deleteWebHook({ drop_pending_updates: false })
+      .catch((err: unknown) => {
+        logger.warn({ err }, "deleteWebHook failed (continuing)");
+      })
+      .finally(() => {
+        bot!.startPolling().catch((err: unknown) => {
+          logger.error({ err }, "startPolling failed");
+        });
+        logger.info("Telegram bot started (polling)");
+      });
+  }
 
   bot.onText(/^\/start$/, async (msg) => {
     await trackUser(msg, false);
