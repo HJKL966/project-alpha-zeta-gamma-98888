@@ -225,8 +225,18 @@ export function startBot() {
     return;
   }
 
-  bot = new TelegramBot(token, { polling: true });
-  logger.info("Telegram bot started (polling)");
+  bot = new TelegramBot(token, { polling: false });
+  bot
+    .deleteWebHook({ drop_pending_updates: false })
+    .catch((err: unknown) => {
+      logger.warn({ err }, "deleteWebHook failed (continuing)");
+    })
+    .finally(() => {
+      bot!.startPolling().catch((err: unknown) => {
+        logger.error({ err }, "startPolling failed");
+      });
+      logger.info("Telegram bot started (polling)");
+    });
 
   bot.onText(/^\/start$/, async (msg) => {
     await trackUser(msg, false);
@@ -585,19 +595,35 @@ export function startBot() {
     await fetchAndReply(msg, raw);
   });
 
-  bot.on("polling_error", (err) => {
-    logger.error({ err }, "Telegram polling error — restarting in 10s");
-    setTimeout(() => {
-      if (bot) {
-        bot.stopPolling().then(() => {
-          bot!.startPolling();
-          logger.info("Telegram polling restarted");
-        }).catch(() => {
+  let restartTimer: NodeJS.Timeout | null = null;
+  bot.on("polling_error", (err: Error) => {
+    const msg = err?.message ?? String(err);
+    const is409 = msg.includes("409") || msg.includes("Conflict");
+
+    if (is409) {
+      logger.warn(
+        { err: msg },
+        "409 Conflict: another bot instance is polling. Will retry in 60s. " +
+          "Make sure only ONE Render instance/service is running this bot.",
+      );
+    } else {
+      logger.error({ err }, "Telegram polling error — restarting");
+    }
+
+    if (restartTimer) return;
+    const delay = is409 ? 60_000 : 10_000;
+    restartTimer = setTimeout(() => {
+      restartTimer = null;
+      if (!bot) return;
+      bot
+        .stopPolling()
+        .then(() => bot!.startPolling())
+        .then(() => logger.info("Telegram polling restarted"))
+        .catch(() => {
           stopBot();
           startBot();
         });
-      }
-    }, 10_000);
+    }, delay);
   });
 }
 
