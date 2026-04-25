@@ -215,6 +215,7 @@ export function formatDate(ts: number | undefined, fallback: string): string {
 }
 
 export async function resolveUsernameById(userId: string): Promise<string | null> {
+  const ARABIC = "\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u064B-\u065F\u0670\u06D6-\u06ED";
   const candidates = [
     `https://m.tiktok.com/h5/share/usr/${userId}.html`,
     `https://www.tiktok.com/share/user/${userId}`,
@@ -227,10 +228,21 @@ export async function resolveUsernameById(userId: string): Promise<string | null
         maxRedirects: 5,
         validateStatus: () => true,
       });
+      const html = r.data ?? "";
+
+      const secMatch = html.match(/"secUid"\s*:\s*"(MS4wLjABAAAA[A-Za-z0-9_-]{20,})"/);
+      if (secMatch && secMatch[1]) return secMatch[1];
+
       const finalUrl = (r.request?.res?.responseUrl as string | undefined) ?? "";
-      const m1 = finalUrl.match(/@([A-Za-z0-9._]+)/);
+      const finalSec = finalUrl.match(/@(MS4wLjABAAAA[A-Za-z0-9_-]{20,})/);
+      if (finalSec && finalSec[1]) return finalSec[1];
+
+      const userRe = new RegExp(`@([A-Za-z0-9._${ARABIC}-]+)`, "u");
+      const m1 = finalUrl.match(userRe);
       if (m1 && m1[1]) return m1[1];
-      const m2 = (r.data ?? "").match(/"uniqueId"\s*:\s*"([A-Za-z0-9._]+)"/);
+
+      const uidRe = new RegExp(`"uniqueId"\\s*:\\s*"([A-Za-z0-9._${ARABIC}-]+)"`, "u");
+      const m2 = html.match(uidRe);
       if (m2 && m2[1]) return m2[1];
     } catch {
       /* try next */
