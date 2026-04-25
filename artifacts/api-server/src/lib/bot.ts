@@ -392,6 +392,14 @@ export function startBot() {
         return true;
       }
 
+      const profileMatch = cleaned.match(
+        /tiktok\.com\/@([A-Za-z0-9._\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u064B-\u065F\u0670\u06D6-\u06ED-]+)(?:[/?#]|$)/u,
+      );
+      if (profileMatch && profileMatch[1] && !/\/video\//i.test(cleaned)) {
+        await fetchAndReply(msg, profileMatch[1]);
+        return true;
+      }
+
       const loading = await bot!.sendMessage(chatId, t.searching);
       const username = await resolveUsernameFromVideoUrl(cleaned);
       if (username) {
