@@ -23,7 +23,6 @@ const BROWSER_HEADERS = {
   Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
   "Accept-Language": "ar-SA,ar;q=0.9,en;q=0.8",
   Referer: "https://www.tiktok.com/",
-  Cookie: "tt_webid_v2=7364759834132382213; ttwid=1%7CaGVsbG8%7C1714000000%7C; tt_chain_token=abc123def456;",
 };
 
 const API_HEADERS = {
@@ -32,57 +31,20 @@ const API_HEADERS = {
   Accept: "application/json, text/plain, */*",
   "Accept-Language": "ar-SA,ar;q=0.9,en;q=0.8",
   Referer: "https://www.tiktok.com/",
-  Cookie: "tt_webid_v2=7364759834132382213; ttwid=1%7CaGVsbG8%7C1714000000%7C; tt_chain_token=abc123def456;",
 };
-
-const LANGUAGE_TO_COUNTRY: Record<string, string> = {
-  ar: "SA", ko: "KR", ja: "JP", zh: "CN", th: "TH",
-  vi: "VN", id: "ID", tr: "TR", ru: "RU", pt: "BR",
-  fr: "FR", de: "DE", es: "ES", it: "IT", hi: "IN",
-  ms: "MY", tl: "PH", uk: "UA", pl: "PL", nl: "NL",
-  sv: "SE", da: "DK", fi: "FI", nb: "NO", cs: "CZ",
-  hu: "HU", ro: "RO", el: "GR", he: "IL", fa: "IR",
-};
-
-function inferRegionFromLanguage(lang: string): string {
-  if (!lang || lang.length < 2) return "";
-  return LANGUAGE_TO_COUNTRY[lang.toLowerCase()] ?? "";
-}
-
-function bestRegion(...candidates: (string | undefined)[]): string {
-  for (const c of candidates) {
-    if (c && c.trim().length >= 2) return c.trim().toUpperCase();
-  }
-  return "";
-}
 
 type ExtractResult =
   | { kind: "ok"; info: TikTokUserInfo }
   | { kind: "banned" }
   | { kind: "notfound" };
 
-function extractFromHtml(html: string): ExtractResult {
-  const scriptMatch = html.match(
-    /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/
-  );
-  if (!scriptMatch || !scriptMatch[1]) return { kind: "notfound" };
-
-  let jsonData: Record<string, unknown>;
-  try {
-    jsonData = JSON.parse(scriptMatch[1]) as Record<string, unknown>;
-  } catch {
-    return { kind: "notfound" };
-  }
-
+function extractUserFromJson(jsonData: Record<string, unknown>): ExtractResult {
   const defaultScope = (jsonData["__DEFAULT_SCOPE__"] ?? {}) as Record<string, unknown>;
   const webappDetail = (defaultScope["webapp.user-detail"] ?? {}) as Record<string, unknown>;
 
   const statusCode = webappDetail["statusCode"];
   const statusMsg = webappDetail["statusMsg"];
-  if (
-    statusCode === 10221 ||
-    (typeof statusMsg === "string" && /banned/i.test(statusMsg))
-  ) {
+  if (statusCode === 10221 || (typeof statusMsg === "string" && /banned/i.test(statusMsg))) {
     return { kind: "banned" };
   }
 
@@ -92,17 +54,15 @@ function extractFromHtml(html: string): ExtractResult {
 
   if (!user["uniqueId"]) return { kind: "notfound" };
 
-  const lang = typeof user["language"] === "string" ? user["language"] : "";
-  const region = bestRegion(
-    typeof user["region"] === "string" ? user["region"] : undefined,
-    typeof user["localRegion"] === "string" ? user["localRegion"] : undefined,
-    inferRegionFromLanguage(lang),
-  );
+  const region =
+    (typeof user["region"] === "string" && user["region"].length === 2 ? user["region"] : "") ||
+    (typeof user["localRegion"] === "string" && user["localRegion"].length === 2 ? user["localRegion"] : "") ||
+    "";
 
   return {
     kind: "ok",
     info: {
-      username: (user["uniqueId"] as string),
+      username: user["uniqueId"] as string,
       nickname: (user["nickname"] as string) ?? "",
       bio: (user["signature"] as string) ?? "",
       following: Number((stats["followingCount"] as number | undefined) ?? 0),
@@ -113,13 +73,43 @@ function extractFromHtml(html: string): ExtractResult {
       region,
       avatar: (user["avatarLarger"] as string) ?? "",
       id: (user["id"] as string) ?? "",
-      createTime: (user["createTime"] as number | undefined),
-      nickNameModifyTime: (user["nickNameModifyTime"] as number | undefined),
-      uniqueIdModifyTime: (user["uniqueIdModifyTime"] as number | undefined),
+      createTime: user["createTime"] as number | undefined,
+      nickNameModifyTime: user["nickNameModifyTime"] as number | undefined,
+      uniqueIdModifyTime: user["uniqueIdModifyTime"] as number | undefined,
     },
   };
 }
 
+function parseHtml(html: string): ExtractResult {
+  const scriptMatch = html.match(
+    /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/
+  );
+  if (!scriptMatch || !scriptMatch[1]) return { kind: "notfound" };
+  try {
+    const jsonData = JSON.parse(scriptMatch[1]) as Record<string, unknown>;
+    return extractUserFromJson(jsonData);
+  } catch {
+    return { kind: "notfound" };
+  }
+}
+
+// ─── ScraperAPI: يرسم الصفحة بمتصفح حقيقي = تيك توك يرجع region الصحيحة ───
+async function fetchViaScraperApi(username: string): Promise<ExtractResult> {
+  const key = process.env["SCRAPER_API_KEY"];
+  if (!key) return { kind: "notfound" };
+  try {
+    const targetUrl = `https://www.tiktok.com/@${encodeURIComponent(username)}`;
+    const response = await axios.get<string>("http://api.scraperapi.com/", {
+      params: { api_key: key, url: targetUrl, render: "true" },
+      timeout: 90000,
+    });
+    return parseHtml(response.data);
+  } catch {
+    return { kind: "notfound" };
+  }
+}
+
+// ─── HTML عادي بدون JS rendering (قد لا يرجع region) ──────────────────────
 async function fetchViaHtml(username: string): Promise<ExtractResult> {
   try {
     const url = `https://www.tiktok.com/@${encodeURIComponent(username)}`;
@@ -128,7 +118,7 @@ async function fetchViaHtml(username: string): Promise<ExtractResult> {
       timeout: 15000,
       maxRedirects: 5,
     });
-    return extractFromHtml(response.data);
+    return parseHtml(response.data);
   } catch {
     return { kind: "notfound" };
   }
@@ -153,18 +143,15 @@ async function fetchViaApi(username: string): Promise<TikTokUserInfo | null> {
     const userInfo = (data["userInfo"] ?? {}) as Record<string, unknown>;
     const user = (userInfo["user"] ?? {}) as Record<string, unknown>;
     const stats = (userInfo["stats"] ?? {}) as Record<string, unknown>;
-
     if (!user["uniqueId"]) return null;
 
-    const lang = typeof user["language"] === "string" ? user["language"] : "";
-    const region = bestRegion(
-      typeof user["region"] === "string" ? user["region"] : undefined,
-      typeof user["localRegion"] === "string" ? user["localRegion"] : undefined,
-      inferRegionFromLanguage(lang),
-    );
+    const region =
+      (typeof user["region"] === "string" ? user["region"] : "") ||
+      (typeof user["localRegion"] === "string" ? user["localRegion"] : "") ||
+      "";
 
     return {
-      username: (user["uniqueId"] as string),
+      username: user["uniqueId"] as string,
       nickname: (user["nickname"] as string) ?? "",
       bio: (user["signature"] as string) ?? "",
       following: Number((stats["followingCount"] as number | undefined) ?? 0),
@@ -175,79 +162,56 @@ async function fetchViaApi(username: string): Promise<TikTokUserInfo | null> {
       region,
       avatar: (user["avatarLarger"] as string) ?? "",
       id: (user["id"] as string) ?? "",
-      createTime: (user["createTime"] as number | undefined),
-      nickNameModifyTime: (user["nickNameModifyTime"] as number | undefined),
-      uniqueIdModifyTime: (user["uniqueIdModifyTime"] as number | undefined),
+      createTime: user["createTime"] as number | undefined,
+      nickNameModifyTime: user["nickNameModifyTime"] as number | undefined,
+      uniqueIdModifyTime: user["uniqueIdModifyTime"] as number | undefined,
     };
   } catch {
     return null;
   }
 }
 
-async function fetchFromTikwm(username: string): Promise<string> {
-  try {
-    const url = `https://www.tikwm.com/api/user/info?unique_id=${encodeURIComponent(username)}`;
-    const response = await axios.get<Record<string, unknown>>(url, { timeout: 12000 });
-    const data = response.data;
-    if (data["code"] !== 0) return "";
-    const user = ((data["data"] as Record<string, unknown>)?.["user"] ?? {}) as Record<string, unknown>;
-    const region = typeof user["region"] === "string" && (user["region"] as string).length === 2
-      ? (user["region"] as string)
-      : "";
-    if (region) return region;
-    const lang = typeof user["language"] === "string" ? (user["language"] as string) : "";
-    return inferRegionFromLanguage(lang);
-  } catch {
-    return "";
-  }
-}
-
 export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
   const isSecUid = /^MS4wLjABAAAA[A-Za-z0-9_-]{20,}$/.test(username);
+  const hasScraperKey = !!process.env["SCRAPER_API_KEY"];
 
   if (isSecUid) {
-    const [htmlExtract, tikwmRegion] = await Promise.all([
-      fetchViaHtml(username).catch(() => ({ kind: "notfound" as const })),
-      fetchFromTikwm(username).catch(() => ""),
-    ]);
-    if (htmlExtract.kind === "ok") {
-      if (!htmlExtract.info.region && tikwmRegion) {
-        htmlExtract.info.region = tikwmRegion;
-      }
-      return htmlExtract.info;
-    }
-    if (htmlExtract.kind === "banned") throw new Error("__BANNED__");
+    const extract = hasScraperKey
+      ? await fetchViaScraperApi(username).catch(() => fetchViaHtml(username))
+      : await fetchViaHtml(username).catch(() => ({ kind: "notfound" as const }));
+    if (extract.kind === "ok") return extract.info;
+    if (extract.kind === "banned") throw new Error("__BANNED__");
     throw new Error("__NOT_FOUND__");
   }
 
-  // جميع المصادر تشتغل بالتوازي في نفس الوقت
-  const [htmlResult, apiResult, tikwmRegion] = await Promise.all([
+  if (hasScraperKey) {
+    // ScraperAPI أولاً (100% دقة للدولة) + HTML و API بالتوازي كـ fallback
+    const [scraperResult, htmlResult, apiResult] = await Promise.all([
+      fetchViaScraperApi(username).catch(() => ({ kind: "notfound" as const })),
+      fetchViaHtml(username).catch(() => ({ kind: "notfound" as const })),
+      fetchViaApi(username).catch(() => null),
+    ]);
+
+    // ScraperAPI هو الأولوية لأنه يرجع region الصحيحة
+    if (scraperResult.kind === "ok") return scraperResult.info;
+    if (htmlResult.kind === "ok") return htmlResult.info;
+    if (apiResult) return apiResult;
+    if (scraperResult.kind === "banned" || htmlResult.kind === "banned")
+      throw new Error("__BANNED__");
+    throw new Error("__NOT_FOUND__");
+  }
+
+  // بدون ScraperAPI: HTML + API بالتوازي (region قد لا تكون متوفرة)
+  const [htmlResult, apiResult] = await Promise.all([
     fetchViaHtml(username).catch(() => ({ kind: "notfound" as const })),
     fetchViaApi(username).catch(() => null),
-    fetchFromTikwm(username).catch(() => ""),
   ]);
 
   const htmlExtract = htmlResult as ExtractResult;
-  const fromApi = apiResult as TikTokUserInfo | null;
-
-  let info: TikTokUserInfo | null = null;
-
-  if (htmlExtract.kind === "ok") {
-    info = htmlExtract.info;
-  } else if (fromApi) {
-    info = fromApi;
-  } else if (htmlExtract.kind === "banned") {
-    throw new Error("__BANNED__");
-  } else {
-    throw new Error("__NOT_FOUND__");
-  }
-
-  // إذا ما في دولة من أي مصدر، نستخدم tikwm
-  if (!info.region && tikwmRegion) {
-    info.region = tikwmRegion;
-  }
-
-  return info;
+  if (htmlExtract.kind === "ok") return htmlExtract.info;
+  if (apiResult) return apiResult;
+  if (htmlExtract.kind === "banned") throw new Error("__BANNED__");
+  throw new Error("__NOT_FOUND__");
 }
 
 export function formatNumber(n: number): string {
@@ -293,24 +257,18 @@ export async function resolveUsernameById(userId: string): Promise<string | null
         validateStatus: () => true,
       });
       const html = r.data ?? "";
-
       const secMatch = html.match(/"secUid"\s*:\s*"(MS4wLjABAAAA[A-Za-z0-9_-]{20,})"/);
       if (secMatch && secMatch[1]) return secMatch[1];
-
       const finalUrl = (r.request?.res?.responseUrl as string | undefined) ?? "";
       const finalSec = finalUrl.match(/@(MS4wLjABAAAA[A-Za-z0-9_-]{20,})/);
       if (finalSec && finalSec[1]) return finalSec[1];
-
       const userRe = new RegExp(`@([A-Za-z0-9._${ARABIC}-]+)`, "u");
       const m1 = finalUrl.match(userRe);
       if (m1 && m1[1]) return m1[1];
-
       const uidRe = new RegExp(`"uniqueId"\\s*:\\s*"([A-Za-z0-9._${ARABIC}-]+)"`, "u");
       const m2 = html.match(uidRe);
       if (m2 && m2[1]) return m2[1];
-    } catch {
-      /* try next */
-    }
+    } catch { /* try next */ }
   }
   return null;
 }
@@ -330,9 +288,7 @@ export async function resolveUsernameFromVideoUrl(rawUrl: string): Promise<strin
     const finalUrl = (r.request?.res?.responseUrl as string | undefined) ?? "";
     const m = finalUrl.match(/tiktok\.com\/@([A-Za-z0-9._]+)(?:\/|$)/i);
     if (m && m[1] && !m[1].startsWith("MS4wLj")) return m[1];
-  } catch {
-    /* ignore */
-  }
+  } catch { /* ignore */ }
   return null;
 }
 
@@ -347,48 +303,28 @@ export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInf
       validateStatus: () => true,
     });
     const html = r.data ?? "";
-    const m = html.match(
-      /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/,
-    );
+    const m = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
     if (!m || !m[1]) return null;
     const json = JSON.parse(m[1]) as Record<string, unknown>;
     const scope = (json["__DEFAULT_SCOPE__"] ?? {}) as Record<string, unknown>;
-    const detail =
-      (scope["webapp.reflow.video.detail"] ?? scope["webapp.video-detail"] ?? {}) as Record<
-        string,
-        unknown
-      >;
+    const detail = (scope["webapp.reflow.video.detail"] ?? scope["webapp.video-detail"] ?? {}) as Record<string, unknown>;
     const itemInfo = (detail["itemInfo"] ?? {}) as Record<string, unknown>;
     const item = (itemInfo["itemStruct"] ?? {}) as Record<string, unknown>;
     const author = (item["author"] ?? {}) as Record<string, unknown>;
     const stats = (item["authorStats"] ?? item["stats"] ?? {}) as Record<string, unknown>;
     if (!author["uniqueId"] && !author["id"]) return null;
-    const lang = typeof author["language"] === "string" ? (author["language"] as string) : "";
-    const region = bestRegion(
-      typeof author["region"] === "string" ? author["region"] : undefined,
-      typeof author["localRegion"] === "string" ? author["localRegion"] : undefined,
-      inferRegionFromLanguage(lang),
-    );
+    const region =
+      (typeof author["region"] === "string" ? author["region"] : "") ||
+      (typeof author["localRegion"] === "string" ? author["localRegion"] : "") ||
+      "";
     return {
       username: (author["uniqueId"] as string) ?? "",
       nickname: (author["nickname"] as string) ?? "",
       bio: (author["signature"] as string) ?? "",
-      following: Number(
-        (stats["followingCount"] as number | undefined) ??
-          (author["followingCount"] as number | undefined) ??
-          0,
-      ),
-      followers: Number(
-        (stats["followerCount"] as number | undefined) ??
-          (author["followerCount"] as number | undefined) ??
-          0,
-      ),
+      following: Number((stats["followingCount"] as number | undefined) ?? (author["followingCount"] as number | undefined) ?? 0),
+      followers: Number((stats["followerCount"] as number | undefined) ?? (author["followerCount"] as number | undefined) ?? 0),
       friends: Number((stats["friendCount"] as number | undefined) ?? 0),
-      likes: Number(
-        (stats["heartCount"] as number | undefined) ??
-          (author["heartCount"] as number | undefined) ??
-          0,
-      ),
+      likes: Number((stats["heartCount"] as number | undefined) ?? (author["heartCount"] as number | undefined) ?? 0),
       verified: Boolean(author["verified"] ?? false),
       region,
       avatar: (author["avatarLarger"] as string) ?? "",
@@ -397,9 +333,7 @@ export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInf
       nickNameModifyTime: author["nickNameModifyTime"] as number | undefined,
       uniqueIdModifyTime: author["uniqueIdModifyTime"] as number | undefined,
     };
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 export interface SearchHit {
@@ -420,8 +354,7 @@ async function searchViaDuckDuckGo(keyword: string): Promise<string[]> {
     try {
       const r = await axios.get<string>(url, {
         headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
           Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           "Accept-Language": "en-US,en;q=0.9",
         },
@@ -440,9 +373,7 @@ async function searchViaDuckDuckGo(keyword: string): Promise<string[]> {
         if (usernames.length >= 10) return usernames;
       }
       if (usernames.length > 0) return usernames;
-    } catch {
-      /* try next */
-    }
+    } catch { /* try next */ }
   }
   return usernames;
 }
@@ -450,23 +381,14 @@ async function searchViaDuckDuckGo(keyword: string): Promise<string[]> {
 export async function searchUsers(keyword: string): Promise<SearchHit[]> {
   const hits: SearchHit[] = [];
   const seen = new Set<string>();
-
   const directCandidate = keyword.trim().replace(/^@+/, "");
   if (/^[A-Za-z0-9._]{2,24}$/.test(directCandidate)) {
     try {
       const info = await getTikTokUser(directCandidate);
       seen.add(info.username.toLowerCase());
-      hits.push({
-        username: info.username,
-        nickname: info.nickname,
-        followers: info.followers,
-        verified: info.verified,
-      });
-    } catch {
-      /* not a direct hit, continue */
-    }
+      hits.push({ username: info.username, nickname: info.nickname, followers: info.followers, verified: info.verified });
+    } catch { /* not a direct hit */ }
   }
-
   const usernames = await searchViaDuckDuckGo(keyword);
   const remaining = usernames.filter((u) => !seen.has(u.toLowerCase())).slice(0, 5);
   const results = await Promise.allSettled(remaining.map((u) => getTikTokUser(u)));
@@ -477,12 +399,7 @@ export async function searchUsers(keyword: string): Promise<SearchHit[]> {
       const info = res.value;
       if (seen.has(info.username.toLowerCase())) continue;
       seen.add(info.username.toLowerCase());
-      hits.push({
-        username: info.username,
-        nickname: info.nickname,
-        followers: info.followers,
-        verified: info.verified,
-      });
+      hits.push({ username: info.username, nickname: info.nickname, followers: info.followers, verified: info.verified });
     } else {
       if (seen.has(username.toLowerCase())) continue;
       seen.add(username.toLowerCase());
