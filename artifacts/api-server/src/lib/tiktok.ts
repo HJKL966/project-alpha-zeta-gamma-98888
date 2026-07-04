@@ -108,69 +108,44 @@ function parseHtmlFull(html: string): ParsedPage {
 }
 
 // ─── الحل الجذري: جلب الدولة من قائمة مقاطع الفيديو ──────────────────────
-// تيك توك أخفى region في صفحة الحساب لكنه لا يزال يعيده في بيانات الفيديو
+// تيك توك أخفى region في صفحة الحساب لكنه لا يزال يعيده في بيانات الفيديو.
+// نتحقق من أن كل مقطع ينتمي لصاحب الـ secUid المطلوب لتجنب إعادة دولة خاطئة.
 async function fetchRegionFromVideos(secUid: string): Promise<string> {
-  const endpoints = [
-    // API قائمة مقاطع الفيديو
-    () => {
-      const params = new URLSearchParams({
-        secUid,
-        count: "3",
-        cursor: "0",
-        aid: "1988",
-        app_language: "ar",
-        device_platform: "web_mobile",
-        region: "SA",
-        priority_region: "",
-        os: "ios",
-        referer: "",
-        root_referer: "",
-        app_name: "tiktok_web",
-        is_page_visible: "true",
-        history_len: "2",
-        focus_state: "true",
-        is_fullscreen: "false",
-        language: "ar",
-      });
-      return `https://www.tiktok.com/api/post/item_list/?${params.toString()}`;
-    },
-    // API المقاطع المقترحة بناءً على secUid
-    () => {
-      const params = new URLSearchParams({
-        secUid,
-        count: "3",
-        cursor: "0",
-        aid: "1988",
-        device_platform: "web_mobile",
-        os: "ios",
-      });
-      return `https://www.tiktok.com/api/recommend/item_list/?${params.toString()}`;
-    },
-  ];
-
-  for (const buildUrl of endpoints) {
-    try {
-      const url = buildUrl();
-      const response = await axios.get<Record<string, unknown>>(url, {
-        headers: {
-          ...API_HEADERS,
-          "User-Agent":
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 TikTok/30.7.4 i",
-        },
-        timeout: 15000,
-        validateStatus: () => true,
-      });
-      const data = response.data;
-      const itemList = (data["itemList"] ?? []) as Record<string, unknown>[];
-      for (const item of itemList) {
-        const author = (item["author"] ?? {}) as Record<string, unknown>;
-        const r =
-          (typeof author["region"] === "string" ? author["region"] : "") ||
-          (typeof author["localRegion"] === "string" ? author["localRegion"] : "");
-        if (r && r.length === 2) return r.toUpperCase();
-      }
-    } catch { /* جرّب التالي */ }
-  }
+  try {
+    const params = new URLSearchParams({
+      secUid,
+      count: "5",
+      cursor: "0",
+      aid: "1988",
+      app_language: "ar",
+      device_platform: "web_mobile",
+      region: "SA",
+      os: "ios",
+      app_name: "tiktok_web",
+    });
+    const url = `https://www.tiktok.com/api/post/item_list/?${params.toString()}`;
+    const response = await axios.get<Record<string, unknown>>(url, {
+      headers: {
+        ...API_HEADERS,
+        "User-Agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 TikTok/30.7.4 i",
+      },
+      timeout: 15000,
+      validateStatus: () => true,
+    });
+    const data = response.data;
+    const itemList = (data["itemList"] ?? []) as Record<string, unknown>[];
+    for (const item of itemList) {
+      const author = (item["author"] ?? {}) as Record<string, unknown>;
+      // ✅ تحقق أن المقطع ينتمي فعلاً لصاحب الـ secUid المطلوب
+      const authorSecUid = typeof author["secUid"] === "string" ? author["secUid"] : "";
+      if (authorSecUid && authorSecUid !== secUid) continue;
+      const r =
+        (typeof author["region"] === "string" ? author["region"] : "") ||
+        (typeof author["localRegion"] === "string" ? author["localRegion"] : "");
+      if (r && r.length === 2) return r.toUpperCase();
+    }
+  } catch { /* تجاهل الخطأ */ }
 
   return "";
 }
@@ -251,7 +226,7 @@ async function fetchViaScraperApi(username: string): Promise<ParsedPage> {
   if (!key) return { extract: { kind: "notfound" } };
   try {
     const targetUrl = `https://www.tiktok.com/@${encodeURIComponent(username)}`;
-    const response = await axios.get<string>("http://api.scraperapi.com/", {
+    const response = await axios.get<string>("https://api.scraperapi.com/", {
       params: { api_key: key, url: targetUrl, render: "true" },
       timeout: 90000,
     });
