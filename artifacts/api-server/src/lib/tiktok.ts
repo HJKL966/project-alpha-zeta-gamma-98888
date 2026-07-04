@@ -49,6 +49,13 @@ function inferRegionFromLanguage(lang: string): string {
   return LANGUAGE_TO_COUNTRY[lang.toLowerCase()] ?? "";
 }
 
+function bestRegion(...candidates: (string | undefined)[]): string {
+  for (const c of candidates) {
+    if (c && c.trim().length >= 2) return c.trim().toUpperCase();
+  }
+  return "";
+}
+
 type ExtractResult =
   | { kind: "ok"; info: TikTokUserInfo }
   | { kind: "banned" }
@@ -86,12 +93,11 @@ function extractFromHtml(html: string): ExtractResult {
   if (!user["uniqueId"]) return { kind: "notfound" };
 
   const lang = typeof user["language"] === "string" ? user["language"] : "";
-
-  const region =
-    (typeof user["region"] === "string" && user["region"].length === 2 ? user["region"] : "") ||
-    (typeof user["localRegion"] === "string" && user["localRegion"].length === 2 ? user["localRegion"] : "") ||
-    inferRegionFromLanguage(lang) ||
-    "";
+  const region = bestRegion(
+    typeof user["region"] === "string" ? user["region"] : undefined,
+    typeof user["localRegion"] === "string" ? user["localRegion"] : undefined,
+    inferRegionFromLanguage(lang),
+  );
 
   return {
     kind: "ok",
@@ -151,12 +157,11 @@ async function fetchViaApi(username: string): Promise<TikTokUserInfo | null> {
     if (!user["uniqueId"]) return null;
 
     const lang = typeof user["language"] === "string" ? user["language"] : "";
-
-    const region =
-      (typeof user["region"] === "string" ? user["region"] : "") ||
-      (typeof user["localRegion"] === "string" ? user["localRegion"] : "") ||
-      inferRegionFromLanguage(lang) ||
-      "";
+    const region = bestRegion(
+      typeof user["region"] === "string" ? user["region"] : undefined,
+      typeof user["localRegion"] === "string" ? user["localRegion"] : undefined,
+      inferRegionFromLanguage(lang),
+    );
 
     return {
       username: (user["uniqueId"] as string),
@@ -182,7 +187,7 @@ async function fetchViaApi(username: string): Promise<TikTokUserInfo | null> {
 async function fetchFromTikwm(username: string): Promise<string> {
   try {
     const url = `https://www.tikwm.com/api/user/info?unique_id=${encodeURIComponent(username)}`;
-    const response = await axios.get<Record<string, unknown>>(url, { timeout: 10000 });
+    const response = await axios.get<Record<string, unknown>>(url, { timeout: 12000 });
     const data = response.data;
     if (data["code"] !== 0) return "";
     const user = ((data["data"] as Record<string, unknown>)?.["user"] ?? {}) as Record<string, unknown>;
@@ -201,13 +206,13 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
   const isSecUid = /^MS4wLjABAAAA[A-Za-z0-9_-]{20,}$/.test(username);
 
   if (isSecUid) {
-    const htmlExtract = await fetchViaHtml(username).catch(
-      () => ({ kind: "notfound" as const }),
-    );
+    const [htmlExtract, tikwmRegion] = await Promise.all([
+      fetchViaHtml(username).catch(() => ({ kind: "notfound" as const })),
+      fetchFromTikwm(username).catch(() => ""),
+    ]);
     if (htmlExtract.kind === "ok") {
-      if (!htmlExtract.info.region) {
-        const tikwmRegion = await fetchFromTikwm(username).catch(() => "");
-        if (tikwmRegion) htmlExtract.info.region = tikwmRegion;
+      if (!htmlExtract.info.region && tikwmRegion) {
+        htmlExtract.info.region = tikwmRegion;
       }
       return htmlExtract.info;
     }
@@ -215,14 +220,15 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     throw new Error("__NOT_FOUND__");
   }
 
-  const [htmlResult, apiResult] = await Promise.allSettled([
-    fetchViaHtml(username),
-    fetchViaApi(username),
+  // جميع المصادر تشتغل بالتوازي في نفس الوقت
+  const [htmlResult, apiResult, tikwmRegion] = await Promise.all([
+    fetchViaHtml(username).catch(() => ({ kind: "notfound" as const })),
+    fetchViaApi(username).catch(() => null),
+    fetchFromTikwm(username).catch(() => ""),
   ]);
 
-  const htmlExtract: ExtractResult =
-    htmlResult.status === "fulfilled" ? htmlResult.value : { kind: "notfound" };
-  const fromApi = apiResult.status === "fulfilled" ? apiResult.value : null;
+  const htmlExtract = htmlResult as ExtractResult;
+  const fromApi = apiResult as TikTokUserInfo | null;
 
   let info: TikTokUserInfo | null = null;
 
@@ -236,9 +242,9 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     throw new Error("__NOT_FOUND__");
   }
 
-  if (!info.region) {
-    const tikwmRegion = await fetchFromTikwm(username).catch(() => "");
-    if (tikwmRegion) info.region = tikwmRegion;
+  // إذا ما في دولة من أي مصدر، نستخدم tikwm
+  if (!info.region && tikwmRegion) {
+    info.region = tikwmRegion;
   }
 
   return info;
@@ -358,11 +364,11 @@ export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInf
     const stats = (item["authorStats"] ?? item["stats"] ?? {}) as Record<string, unknown>;
     if (!author["uniqueId"] && !author["id"]) return null;
     const lang = typeof author["language"] === "string" ? (author["language"] as string) : "";
-    const region =
-      (typeof author["region"] === "string" ? author["region"] : "") ||
-      (typeof author["localRegion"] === "string" ? author["localRegion"] : "") ||
-      inferRegionFromLanguage(lang) ||
-      "";
+    const region = bestRegion(
+      typeof author["region"] === "string" ? author["region"] : undefined,
+      typeof author["localRegion"] === "string" ? author["localRegion"] : undefined,
+      inferRegionFromLanguage(lang),
+    );
     return {
       username: (author["uniqueId"] as string) ?? "",
       nickname: (author["nickname"] as string) ?? "",
