@@ -38,21 +38,32 @@ type ExtractResult =
   | { kind: "banned" }
   | { kind: "notfound" };
 
-function extractUserFromJson(jsonData: Record<string, unknown>): ExtractResult {
+// نتيجة داخلية تحمل أيضاً secUid لاستخدامه في جلب الدولة لاحقاً
+type ParsedPage = {
+  extract: ExtractResult;
+  secUid?: string;
+};
+
+function extractUserFromJson(jsonData: Record<string, unknown>): ParsedPage {
   const defaultScope = (jsonData["__DEFAULT_SCOPE__"] ?? {}) as Record<string, unknown>;
   const webappDetail = (defaultScope["webapp.user-detail"] ?? {}) as Record<string, unknown>;
 
   const statusCode = webappDetail["statusCode"];
   const statusMsg = webappDetail["statusMsg"];
   if (statusCode === 10221 || (typeof statusMsg === "string" && /banned/i.test(statusMsg))) {
-    return { kind: "banned" };
+    return { extract: { kind: "banned" } };
   }
 
   const userInfo = (webappDetail["userInfo"] ?? {}) as Record<string, unknown>;
   const user = (userInfo["user"] ?? {}) as Record<string, unknown>;
   const stats = (userInfo["stats"] ?? {}) as Record<string, unknown>;
 
-  if (!user["uniqueId"]) return { kind: "notfound" };
+  if (!user["uniqueId"]) return { extract: { kind: "notfound" } };
+
+  // استخراج secUid – لا يزال موجوداً حتى بعد إخفاء region
+  const secUid = typeof user["secUid"] === "string" && (user["secUid"] as string).length > 10
+    ? (user["secUid"] as string)
+    : undefined;
 
   const region =
     (typeof user["region"] === "string" && user["region"].length === 2 ? user["region"] : "") ||
@@ -60,68 +71,214 @@ function extractUserFromJson(jsonData: Record<string, unknown>): ExtractResult {
     "";
 
   return {
-    kind: "ok",
-    info: {
-      username: user["uniqueId"] as string,
-      nickname: (user["nickname"] as string) ?? "",
-      bio: (user["signature"] as string) ?? "",
-      following: Number((stats["followingCount"] as number | undefined) ?? 0),
-      followers: Number((stats["followerCount"] as number | undefined) ?? 0),
-      friends: Number((stats["friendCount"] as number | undefined) ?? 0),
-      likes: Number((stats["heartCount"] as number | undefined) ?? 0),
-      verified: Boolean(user["verified"] ?? false),
-      region,
-      avatar: (user["avatarLarger"] as string) ?? "",
-      id: (user["id"] as string) ?? "",
-      createTime: user["createTime"] as number | undefined,
-      nickNameModifyTime: user["nickNameModifyTime"] as number | undefined,
-      uniqueIdModifyTime: user["uniqueIdModifyTime"] as number | undefined,
+    secUid,
+    extract: {
+      kind: "ok",
+      info: {
+        username: user["uniqueId"] as string,
+        nickname: (user["nickname"] as string) ?? "",
+        bio: (user["signature"] as string) ?? "",
+        following: Number((stats["followingCount"] as number | undefined) ?? 0),
+        followers: Number((stats["followerCount"] as number | undefined) ?? 0),
+        friends: Number((stats["friendCount"] as number | undefined) ?? 0),
+        likes: Number((stats["heartCount"] as number | undefined) ?? 0),
+        verified: Boolean(user["verified"] ?? false),
+        region,
+        avatar: (user["avatarLarger"] as string) ?? "",
+        id: (user["id"] as string) ?? "",
+        createTime: user["createTime"] as number | undefined,
+        nickNameModifyTime: user["nickNameModifyTime"] as number | undefined,
+        uniqueIdModifyTime: user["uniqueIdModifyTime"] as number | undefined,
+      },
     },
   };
 }
 
-function parseHtml(html: string): ExtractResult {
+function parseHtmlFull(html: string): ParsedPage {
   const scriptMatch = html.match(
     /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/
   );
-  if (!scriptMatch || !scriptMatch[1]) return { kind: "notfound" };
+  if (!scriptMatch || !scriptMatch[1]) return { extract: { kind: "notfound" } };
   try {
     const jsonData = JSON.parse(scriptMatch[1]) as Record<string, unknown>;
     return extractUserFromJson(jsonData);
   } catch {
-    return { kind: "notfound" };
+    return { extract: { kind: "notfound" } };
   }
 }
 
+// ─── الحل الجذري: جلب الدولة من قائمة مقاطع الفيديو ──────────────────────
+// تيك توك أخفى region في صفحة الحساب لكنه لا يزال يعيده في بيانات الفيديو
+async function fetchRegionFromVideos(secUid: string): Promise<string> {
+  const endpoints = [
+    // API قائمة مقاطع الفيديو
+    () => {
+      const params = new URLSearchParams({
+        secUid,
+        count: "3",
+        cursor: "0",
+        aid: "1988",
+        app_language: "ar",
+        device_platform: "web_mobile",
+        region: "SA",
+        priority_region: "",
+        os: "ios",
+        referer: "",
+        root_referer: "",
+        app_name: "tiktok_web",
+        is_page_visible: "true",
+        history_len: "2",
+        focus_state: "true",
+        is_fullscreen: "false",
+        language: "ar",
+      });
+      return `https://www.tiktok.com/api/post/item_list/?${params.toString()}`;
+    },
+    // API المقاطع المقترحة بناءً على secUid
+    () => {
+      const params = new URLSearchParams({
+        secUid,
+        count: "3",
+        cursor: "0",
+        aid: "1988",
+        device_platform: "web_mobile",
+        os: "ios",
+      });
+      return `https://www.tiktok.com/api/recommend/item_list/?${params.toString()}`;
+    },
+  ];
+
+  for (const buildUrl of endpoints) {
+    try {
+      const url = buildUrl();
+      const response = await axios.get<Record<string, unknown>>(url, {
+        headers: {
+          ...API_HEADERS,
+          "User-Agent":
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 TikTok/30.7.4 i",
+        },
+        timeout: 15000,
+        validateStatus: () => true,
+      });
+      const data = response.data;
+      const itemList = (data["itemList"] ?? []) as Record<string, unknown>[];
+      for (const item of itemList) {
+        const author = (item["author"] ?? {}) as Record<string, unknown>;
+        const r =
+          (typeof author["region"] === "string" ? author["region"] : "") ||
+          (typeof author["localRegion"] === "string" ? author["localRegion"] : "");
+        if (r && r.length === 2) return r.toUpperCase();
+      }
+    } catch { /* جرّب التالي */ }
+  }
+
+  return "";
+}
+
+// ─── جلب الدولة عبر API تفاصيل المستخدم مع msToken وهمي ─────────────────
+async function fetchRegionFromUserDetailApi(username: string): Promise<string> {
+  const paramSets = [
+    // النهج الأول: web_mobile مع aid=1988
+    new URLSearchParams({
+      uniqueId: username,
+      aid: "1988",
+      app_language: "ar",
+      device_platform: "web_mobile",
+      region: "SA",
+      os: "ios",
+      app_name: "tiktok_web",
+    }),
+    // النهج الثاني: web مع aid=1988
+    new URLSearchParams({
+      uniqueId: username,
+      aid: "1988",
+      device_platform: "web",
+      region: "US",
+    }),
+    // النهج الثالث: محاكاة طلب تطبيق الجوال
+    new URLSearchParams({
+      uniqueId: username,
+      aid: "1233",
+      app_name: "musical_ly",
+      device_platform: "android",
+      region: "SA",
+      version_code: "310503",
+    }),
+  ];
+
+  const baseUrls = [
+    "https://www.tiktok.com/api/user/detail/",
+    "https://api19-normal-c-useast1a.tiktokv.com/aweme/v1/user/profile/other/",
+    "https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/user/profile/other/",
+  ];
+
+  for (let i = 0; i < baseUrls.length; i++) {
+    const baseUrl = baseUrls[i]!;
+    const params = paramSets[Math.min(i, paramSets.length - 1)]!;
+    try {
+      const url = `${baseUrl}?${params.toString()}`;
+      const headers: Record<string, string> = {
+        ...API_HEADERS,
+      };
+      if (i >= 1) {
+        // تطبيق الجوال يستخدم User-Agent مختلف
+        headers["User-Agent"] = "com.ss.android.ugc.trill/310503 (Linux; U; Android 11; en_SA; Pixel 4; Build/RQ3A.210905.001; Cronet/TTNetVersion:b4d74d15 2023-04-28 QuicVersion:0144d358 2023-04-27)";
+      }
+      const response = await axios.get<Record<string, unknown>>(url, {
+        headers,
+        timeout: 15000,
+        validateStatus: () => true,
+      });
+      const data = response.data;
+      // مسار web API
+      const userInfo = (data["userInfo"] ?? {}) as Record<string, unknown>;
+      const user = (userInfo["user"] ?? {}) as Record<string, unknown>;
+      // مسار mobile API
+      const userData = (data["user"] ?? user) as Record<string, unknown>;
+      const r =
+        (typeof userData["region"] === "string" ? userData["region"] : "") ||
+        (typeof userData["localRegion"] === "string" ? userData["localRegion"] : "");
+      if (r && r.length === 2) return r.toUpperCase();
+    } catch { /* جرّب التالي */ }
+  }
+
+  return "";
+}
+
 // ─── ScraperAPI: يرسم الصفحة بمتصفح حقيقي = تيك توك يرجع region الصحيحة ───
-async function fetchViaScraperApi(username: string): Promise<ExtractResult> {
+async function fetchViaScraperApi(username: string): Promise<ParsedPage> {
   const key = process.env["SCRAPER_API_KEY"];
-  if (!key) return { kind: "notfound" };
+  if (!key) return { extract: { kind: "notfound" } };
   try {
     const targetUrl = `https://www.tiktok.com/@${encodeURIComponent(username)}`;
     const response = await axios.get<string>("http://api.scraperapi.com/", {
       params: { api_key: key, url: targetUrl, render: "true" },
       timeout: 90000,
     });
-    return parseHtml(response.data);
+    return parseHtmlFull(response.data);
   } catch {
-    return { kind: "notfound" };
+    return { extract: { kind: "notfound" } };
   }
 }
 
-// ─── HTML عادي بدون JS rendering (قد لا يرجع region) ──────────────────────
-async function fetchViaHtml(username: string): Promise<ExtractResult> {
-  try {
-    const url = `https://www.tiktok.com/@${encodeURIComponent(username)}`;
-    const response = await axios.get<string>(url, {
-      headers: BROWSER_HEADERS,
-      timeout: 15000,
-      maxRedirects: 5,
-    });
-    return parseHtml(response.data);
-  } catch {
-    return { kind: "notfound" };
+// ─── HTML عادي بدون JS rendering ─────────────────────────────────────────
+async function fetchViaHtml(username: string): Promise<ParsedPage> {
+  const urls = [
+    `https://www.tiktok.com/@${encodeURIComponent(username)}`,
+    `https://www.tiktok.com/@${encodeURIComponent(username)}?lang=ar`,
+  ];
+  for (const url of urls) {
+    try {
+      const response = await axios.get<string>(url, {
+        headers: BROWSER_HEADERS,
+        timeout: 15000,
+        maxRedirects: 5,
+      });
+      const parsed = parseHtmlFull(response.data);
+      if (parsed.extract.kind !== "notfound") return parsed;
+    } catch { /* جرّب التالي */ }
   }
+  return { extract: { kind: "notfound" } };
 }
 
 async function fetchViaApi(username: string): Promise<TikTokUserInfo | null> {
@@ -171,45 +328,68 @@ async function fetchViaApi(username: string): Promise<TikTokUserInfo | null> {
   }
 }
 
+// ─── تحسين الدولة: يُجري كل الطرق المجانية بالتوازي إذا كانت region فارغة ──
+async function enrichRegion(info: TikTokUserInfo, secUid?: string): Promise<TikTokUserInfo> {
+  if (info.region && info.region.length === 2) return info; // الدولة موجودة، لا حاجة لشيء آخر
+
+  // شغّل كل الطرق بالتوازي لأقصى سرعة
+  const tasks: Promise<string>[] = [];
+  if (secUid) {
+    tasks.push(fetchRegionFromVideos(secUid));
+  }
+  tasks.push(fetchRegionFromUserDetailApi(info.username));
+
+  const results = await Promise.all(tasks.map((t) => t.catch(() => "")));
+  const region = results.find((r) => r && r.length === 2) ?? "";
+
+  return { ...info, region };
+}
+
 export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
   const isSecUid = /^MS4wLjABAAAA[A-Za-z0-9_-]{20,}$/.test(username);
   const hasScraperKey = !!process.env["SCRAPER_API_KEY"];
 
   if (isSecUid) {
-    const extract = hasScraperKey
+    const parsed = hasScraperKey
       ? await fetchViaScraperApi(username).catch(() => fetchViaHtml(username))
-      : await fetchViaHtml(username).catch(() => ({ kind: "notfound" as const }));
-    if (extract.kind === "ok") return extract.info;
+      : await fetchViaHtml(username).catch((): ParsedPage => ({ extract: { kind: "notfound" } }));
+    const { extract, secUid } = parsed;
+    if (extract.kind === "ok") return enrichRegion(extract.info, secUid ?? username);
     if (extract.kind === "banned") throw new Error("__BANNED__");
     throw new Error("__NOT_FOUND__");
   }
 
   if (hasScraperKey) {
-    // ScraperAPI أولاً (100% دقة للدولة) + HTML و API بالتوازي كـ fallback
-    const [scraperResult, htmlResult, apiResult] = await Promise.all([
-      fetchViaScraperApi(username).catch(() => ({ kind: "notfound" as const })),
-      fetchViaHtml(username).catch(() => ({ kind: "notfound" as const })),
+    // ScraperAPI أولاً + HTML وAPI بالتوازي كـ fallback
+    const [scraperParsed, htmlParsed, apiResult] = await Promise.all([
+      fetchViaScraperApi(username).catch((): ParsedPage => ({ extract: { kind: "notfound" } })),
+      fetchViaHtml(username).catch((): ParsedPage => ({ extract: { kind: "notfound" } })),
       fetchViaApi(username).catch(() => null),
     ]);
 
-    // ScraperAPI هو الأولوية لأنه يرجع region الصحيحة
-    if (scraperResult.kind === "ok") return scraperResult.info;
-    if (htmlResult.kind === "ok") return htmlResult.info;
-    if (apiResult) return apiResult;
-    if (scraperResult.kind === "banned" || htmlResult.kind === "banned")
+    // ScraperAPI هو الأولوية لأنه يعطي نتائج أفضل
+    if (scraperParsed.extract.kind === "ok") {
+      return enrichRegion(scraperParsed.extract.info, scraperParsed.secUid);
+    }
+    if (htmlParsed.extract.kind === "ok") {
+      return enrichRegion(htmlParsed.extract.info, htmlParsed.secUid);
+    }
+    if (apiResult) return enrichRegion(apiResult);
+    if (scraperParsed.extract.kind === "banned" || htmlParsed.extract.kind === "banned") {
       throw new Error("__BANNED__");
+    }
     throw new Error("__NOT_FOUND__");
   }
 
-  // بدون ScraperAPI: HTML + API بالتوازي (region قد لا تكون متوفرة)
-  const [htmlResult, apiResult] = await Promise.all([
-    fetchViaHtml(username).catch(() => ({ kind: "notfound" as const })),
+  // بدون ScraperAPI: HTML + API بالتوازي
+  const [htmlParsed, apiResult] = await Promise.all([
+    fetchViaHtml(username).catch((): ParsedPage => ({ extract: { kind: "notfound" } })),
     fetchViaApi(username).catch(() => null),
   ]);
 
-  const htmlExtract = htmlResult as ExtractResult;
-  if (htmlExtract.kind === "ok") return htmlExtract.info;
-  if (apiResult) return apiResult;
+  const { extract: htmlExtract, secUid } = htmlParsed;
+  if (htmlExtract.kind === "ok") return enrichRegion(htmlExtract.info, secUid);
+  if (apiResult) return enrichRegion(apiResult);
   if (htmlExtract.kind === "banned") throw new Error("__BANNED__");
   throw new Error("__NOT_FOUND__");
 }
@@ -317,7 +497,7 @@ export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInf
       (typeof author["region"] === "string" ? author["region"] : "") ||
       (typeof author["localRegion"] === "string" ? author["localRegion"] : "") ||
       "";
-    return {
+    const info: TikTokUserInfo = {
       username: (author["uniqueId"] as string) ?? "",
       nickname: (author["nickname"] as string) ?? "",
       bio: (author["signature"] as string) ?? "",
@@ -333,6 +513,9 @@ export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInf
       nickNameModifyTime: author["nickNameModifyTime"] as number | undefined,
       uniqueIdModifyTime: author["uniqueIdModifyTime"] as number | undefined,
     };
+    // الفيديو قد يحمل region في بيانات المؤلف مباشرة، لكن إن كانت فارغة نحاول الإثراء
+    const secUid = typeof author["secUid"] === "string" ? (author["secUid"] as string) : undefined;
+    return enrichRegion(info, secUid);
   } catch { return null; }
 }
 
