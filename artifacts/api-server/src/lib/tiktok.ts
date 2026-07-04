@@ -35,6 +35,20 @@ const API_HEADERS = {
   Cookie: "tt_webid_v2=7364759834132382213; ttwid=1%7CaGVsbG8%7C1714000000%7C; tt_chain_token=abc123def456;",
 };
 
+const LANGUAGE_TO_COUNTRY: Record<string, string> = {
+  ar: "SA", ko: "KR", ja: "JP", zh: "CN", th: "TH",
+  vi: "VN", id: "ID", tr: "TR", ru: "RU", pt: "BR",
+  fr: "FR", de: "DE", es: "ES", it: "IT", hi: "IN",
+  ms: "MY", tl: "PH", uk: "UA", pl: "PL", nl: "NL",
+  sv: "SE", da: "DK", fi: "FI", nb: "NO", cs: "CZ",
+  hu: "HU", ro: "RO", el: "GR", he: "IL", fa: "IR",
+};
+
+function inferRegionFromLanguage(lang: string): string {
+  if (!lang || lang.length < 2) return "";
+  return LANGUAGE_TO_COUNTRY[lang.toLowerCase()] ?? "";
+}
+
 type ExtractResult =
   | { kind: "ok"; info: TikTokUserInfo }
   | { kind: "banned" }
@@ -71,9 +85,12 @@ function extractFromHtml(html: string): ExtractResult {
 
   if (!user["uniqueId"]) return { kind: "notfound" };
 
+  const lang = typeof user["language"] === "string" ? user["language"] : "";
+
   const region =
     (typeof user["region"] === "string" && user["region"].length === 2 ? user["region"] : "") ||
     (typeof user["localRegion"] === "string" && user["localRegion"].length === 2 ? user["localRegion"] : "") ||
+    inferRegionFromLanguage(lang) ||
     "";
 
   return {
@@ -133,9 +150,12 @@ async function fetchViaApi(username: string): Promise<TikTokUserInfo | null> {
 
     if (!user["uniqueId"]) return null;
 
+    const lang = typeof user["language"] === "string" ? user["language"] : "";
+
     const region =
       (typeof user["region"] === "string" ? user["region"] : "") ||
       (typeof user["localRegion"] === "string" ? user["localRegion"] : "") ||
+      inferRegionFromLanguage(lang) ||
       "";
 
     return {
@@ -159,6 +179,24 @@ async function fetchViaApi(username: string): Promise<TikTokUserInfo | null> {
   }
 }
 
+async function fetchFromTikwm(username: string): Promise<string> {
+  try {
+    const url = `https://www.tikwm.com/api/user/info?unique_id=${encodeURIComponent(username)}`;
+    const response = await axios.get<Record<string, unknown>>(url, { timeout: 10000 });
+    const data = response.data;
+    if (data["code"] !== 0) return "";
+    const user = ((data["data"] as Record<string, unknown>)?.["user"] ?? {}) as Record<string, unknown>;
+    const region = typeof user["region"] === "string" && (user["region"] as string).length === 2
+      ? (user["region"] as string)
+      : "";
+    if (region) return region;
+    const lang = typeof user["language"] === "string" ? (user["language"] as string) : "";
+    return inferRegionFromLanguage(lang);
+  } catch {
+    return "";
+  }
+}
+
 export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
   const isSecUid = /^MS4wLjABAAAA[A-Za-z0-9_-]{20,}$/.test(username);
 
@@ -166,7 +204,13 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     const htmlExtract = await fetchViaHtml(username).catch(
       () => ({ kind: "notfound" as const }),
     );
-    if (htmlExtract.kind === "ok") return htmlExtract.info;
+    if (htmlExtract.kind === "ok") {
+      if (!htmlExtract.info.region) {
+        const tikwmRegion = await fetchFromTikwm(username).catch(() => "");
+        if (tikwmRegion) htmlExtract.info.region = tikwmRegion;
+      }
+      return htmlExtract.info;
+    }
     if (htmlExtract.kind === "banned") throw new Error("__BANNED__");
     throw new Error("__NOT_FOUND__");
   }
@@ -180,10 +224,24 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     htmlResult.status === "fulfilled" ? htmlResult.value : { kind: "notfound" };
   const fromApi = apiResult.status === "fulfilled" ? apiResult.value : null;
 
-  if (htmlExtract.kind === "ok") return htmlExtract.info;
-  if (fromApi) return fromApi;
-  if (htmlExtract.kind === "banned") throw new Error("__BANNED__");
-  throw new Error("__NOT_FOUND__");
+  let info: TikTokUserInfo | null = null;
+
+  if (htmlExtract.kind === "ok") {
+    info = htmlExtract.info;
+  } else if (fromApi) {
+    info = fromApi;
+  } else if (htmlExtract.kind === "banned") {
+    throw new Error("__BANNED__");
+  } else {
+    throw new Error("__NOT_FOUND__");
+  }
+
+  if (!info.region) {
+    const tikwmRegion = await fetchFromTikwm(username).catch(() => "");
+    if (tikwmRegion) info.region = tikwmRegion;
+  }
+
+  return info;
 }
 
 export function formatNumber(n: number): string {
@@ -299,6 +357,12 @@ export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInf
     const author = (item["author"] ?? {}) as Record<string, unknown>;
     const stats = (item["authorStats"] ?? item["stats"] ?? {}) as Record<string, unknown>;
     if (!author["uniqueId"] && !author["id"]) return null;
+    const lang = typeof author["language"] === "string" ? (author["language"] as string) : "";
+    const region =
+      (typeof author["region"] === "string" ? author["region"] : "") ||
+      (typeof author["localRegion"] === "string" ? author["localRegion"] : "") ||
+      inferRegionFromLanguage(lang) ||
+      "";
     return {
       username: (author["uniqueId"] as string) ?? "",
       nickname: (author["nickname"] as string) ?? "",
@@ -320,10 +384,7 @@ export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInf
           0,
       ),
       verified: Boolean(author["verified"] ?? false),
-      region:
-        (typeof author["region"] === "string" ? author["region"] : "") ||
-        (typeof author["localRegion"] === "string" ? author["localRegion"] : "") ||
-        "",
+      region,
       avatar: (author["avatarLarger"] as string) ?? "",
       id: (author["id"] as string) ?? "",
       createTime: author["createTime"] as number | undefined,
