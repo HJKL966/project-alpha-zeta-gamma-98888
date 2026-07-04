@@ -303,16 +303,82 @@ async function fetchViaApi(username: string): Promise<TikTokUserInfo | null> {
   }
 }
 
+// ─── tikwm.com: مصدر خارجي موثوق – يُعيد region من الفيديو الأول للمستخدم ───
+// tikwm مجاني، لا يُحجب، ويحمل region في كل فيديو (ليس في بيانات المستخدم)
+async function fetchRegionFromTikwm(username: string, secUid?: string): Promise<string> {
+  // نبني قائمة params لتجريب كلٍّ من unique_id و sec_uid
+  const paramSets: URLSearchParams[] = [
+    new URLSearchParams({ unique_id: username, count: "5", cursor: "0" }),
+  ];
+  if (secUid) {
+    paramSets.push(new URLSearchParams({ unique_id: username, sec_uid: secUid, count: "5", cursor: "0" }));
+  }
+
+  for (const params of paramSets) {
+    try {
+      const url = `https://www.tikwm.com/api/user/posts?${params.toString()}`;
+      const response = await axios.get<Record<string, unknown>>(url, {
+        headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" },
+        timeout: 15000,
+        validateStatus: () => true,
+      });
+      const data = response.data;
+      if ((data["code"] as number) !== 0) continue;
+      const videos = ((data["data"] as Record<string, unknown>)?.["videos"] ?? []) as Record<string, unknown>[];
+      for (const video of videos) {
+        const r = typeof video["region"] === "string" ? video["region"] : "";
+        // region في tikwm هي دولة رفع الفيديو = دولة المستخدم
+        if (r && r.length === 2 && /^[A-Z]{2}$/.test(r.toUpperCase())) return r.toUpperCase();
+      }
+    } catch { /* جرّب التالي */ }
+  }
+  return "";
+}
+
+// ─── tikwm.com: جلب معلومات المستخدم الأساسية (fallback عند حجب TikTok) ─────
+async function fetchUserFromTikwm(username: string): Promise<TikTokUserInfo | null> {
+  try {
+    const params = new URLSearchParams({ unique_id: username });
+    const response = await axios.get<Record<string, unknown>>(
+      `https://www.tikwm.com/api/user/info?${params.toString()}`,
+      { headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" }, timeout: 15000, validateStatus: () => true }
+    );
+    const data = response.data;
+    if ((data["code"] as number) !== 0) return null;
+    const user = ((data["data"] as Record<string, unknown>)?.["user"] ?? {}) as Record<string, unknown>;
+    if (!user["uniqueId"]) return null;
+    const secUid = typeof user["secUid"] === "string" ? user["secUid"] : undefined;
+    // جلب الدولة من الفيديوهات (لأن user/info لا يُعيد region)
+    const region = secUid ? await fetchRegionFromTikwm(username, secUid) : await fetchRegionFromTikwm(username);
+    return {
+      username: user["uniqueId"] as string,
+      nickname: (user["nickname"] as string) ?? "",
+      bio: (user["signature"] as string) ?? "",
+      following: 0, // tikwm/user/info لا يُعيد stats – نتركها صفر
+      followers: 0,
+      friends: 0,
+      likes: 0,
+      verified: Boolean(user["verified"] ?? false),
+      region,
+      avatar: (user["avatarLarger"] as string) ?? "",
+      id: (user["id"] as string) ?? "",
+      createTime: typeof user["createTime"] === "number" ? user["createTime"] : undefined,
+    };
+  } catch { return null; }
+}
+
 // ─── تحسين الدولة: يُجري كل الطرق المجانية بالتوازي إذا كانت region فارغة ──
 async function enrichRegion(info: TikTokUserInfo, secUid?: string): Promise<TikTokUserInfo> {
   if (info.region && info.region.length === 2) return info; // الدولة موجودة، لا حاجة لشيء آخر
 
   // شغّل كل الطرق بالتوازي لأقصى سرعة
-  const tasks: Promise<string>[] = [];
+  const tasks: Promise<string>[] = [
+    fetchRegionFromTikwm(info.username, secUid),        // tikwm (يعمل من أي خادم)
+    fetchRegionFromUserDetailApi(info.username),        // TikTok API بنهج مختلف
+  ];
   if (secUid) {
-    tasks.push(fetchRegionFromVideos(secUid));
+    tasks.push(fetchRegionFromVideos(secUid));           // TikTok post/item_list
   }
-  tasks.push(fetchRegionFromUserDetailApi(info.username));
 
   const results = await Promise.all(tasks.map((t) => t.catch(() => "")));
   const region = results.find((r) => r && r.length === 2) ?? "";
