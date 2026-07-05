@@ -108,64 +108,14 @@ function extractUserFromJson(jsonData: Record<string, unknown>): ParsedPage {
   };
 }
 
-// ─── بحث شامل: يجد أي region صالح في أعماق JSON (أياً كان المسار) ───────
-function deepFindRegion(obj: unknown, depth = 0): string {
-  if (depth > 8 || typeof obj !== "object" || obj === null) return "";
-  const o = obj as Record<string, unknown>;
-  // مسارات مباشرة لـ region
-  for (const key of ["region", "localRegion", "currentRegion", "countryCode"]) {
-    const val = o[key];
-    if (typeof val === "string" && isValidRegion(val)) return val.toUpperCase();
-  }
-  // بحث عميق في كل القيم
-  for (const val of Object.values(o)) {
-    if (typeof val === "object" && val !== null && !Array.isArray(val)) {
-      const found = deepFindRegion(val, depth + 1);
-      if (found) return found;
-    }
-  }
-  return "";
-}
-
 function parseHtmlFull(html: string): ParsedPage {
-  // محاولة 1: __UNIVERSAL_DATA_FOR_REHYDRATION__ (المسار الأساسي)
   const scriptMatch = html.match(
     /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/
   );
   if (!scriptMatch || !scriptMatch[1]) return { extract: { kind: "notfound" } };
   try {
     const jsonData = JSON.parse(scriptMatch[1]) as Record<string, unknown>;
-    const page = extractUserFromJson(jsonData);
-
-    // محاولة 2: إذا region فارغة، ابحث في كامل JSON بعمق
-    if (page.extract.kind === "ok" && !isValidRegion(page.extract.info.region)) {
-      const deepRegion = deepFindRegion(jsonData);
-      if (deepRegion) {
-        return {
-          ...page,
-          extract: { kind: "ok", info: { ...page.extract.info, region: deepRegion } },
-        };
-      }
-
-      // محاولة 3: __remixContext (بيانات React Router، قد تحمل region)
-      const remixMatch = html.match(/data-ttark="__remixContext">([^<]{1,50000})/);
-      if (remixMatch?.[1]) {
-        try {
-          const remixRaw = remixMatch[1].startsWith("%7B")
-            ? decodeURIComponent(remixMatch[1])
-            : remixMatch[1];
-          const remixData = JSON.parse(remixRaw) as unknown;
-          const remixRegion = deepFindRegion(remixData);
-          if (remixRegion) {
-            return {
-              ...page,
-              extract: { kind: "ok", info: { ...page.extract.info, region: remixRegion } },
-            };
-          }
-        } catch { /* تجاهل */ }
-      }
-    }
-    return page;
+    return extractUserFromJson(jsonData);
   } catch {
     return { extract: { kind: "notfound" } };
   }
@@ -261,7 +211,8 @@ async function fetchRegionFromVideoIds(videoIds: string[]): Promise<string> {
   return "";
 }
 
-// ─── جلب الدولة عبر API تفاصيل المستخدم مع msToken وهمي ─────────────────
+// ─── جلب الدولة عبر API تفاصيل المستخدم ──────────────────────────────────
+// تنبيه: لا نُرسل "region" كـ query param حتى لا يعود في الـ response ويُضلّل
 async function fetchRegionFromUserDetailApi(username: string): Promise<string> {
   const paramSets = [
     // النهج الأول: web_mobile مع aid=1988
@@ -270,7 +221,6 @@ async function fetchRegionFromUserDetailApi(username: string): Promise<string> {
       aid: "1988",
       app_language: "ar",
       device_platform: "web_mobile",
-      region: "SA",
       os: "ios",
       app_name: "tiktok_web",
     }),
@@ -279,7 +229,6 @@ async function fetchRegionFromUserDetailApi(username: string): Promise<string> {
       uniqueId: username,
       aid: "1988",
       device_platform: "web",
-      region: "US",
     }),
     // النهج الثالث: محاكاة طلب تطبيق الجوال
     new URLSearchParams({
@@ -287,7 +236,6 @@ async function fetchRegionFromUserDetailApi(username: string): Promise<string> {
       aid: "1233",
       app_name: "musical_ly",
       device_platform: "android",
-      region: "SA",
       version_code: "310503",
     }),
   ];
@@ -487,21 +435,36 @@ async function enrichRegion(
 ): Promise<TikTokUserInfo> {
   if (isValidRegion(info.region)) return info; // الدولة موجودة، لا حاجة لشيء آخر
 
-  // شغّل كل المصادر المتاحة بالتوازي لأقصى سرعة وأعلى تغطية
+  // أسماء المصادر للـ logging
+  const sourceNames = ["tikwm:user/posts", "tikwm:feed/search", "tiktok:user/detail"];
   const tasks: Promise<string>[] = [
-    fetchRegionFromTikwm(info.username, secUid),              // tikwm user/posts
-    fetchRegionFromTikwmSearch(info.username, userId),         // tikwm feed/search (يُغطّي حسابات بدون فهرسة)
-    fetchRegionFromUserDetailApi(info.username),               // TikTok api/user/detail (أنهج متعددة)
+    fetchRegionFromTikwm(info.username, secUid),
+    fetchRegionFromTikwmSearch(info.username, userId),
+    fetchRegionFromUserDetailApi(info.username),
   ];
   if (secUid) {
-    tasks.push(fetchRegionFromVideos(secUid));                  // TikTok post/item_list
+    sourceNames.push("tiktok:post/item_list");
+    tasks.push(fetchRegionFromVideos(secUid));
   }
   if (videoIds && videoIds.length > 0) {
-    tasks.push(fetchRegionFromVideoIds(videoIds));              // tikwm single-video بـ IDs من HTML
+    sourceNames.push("tikwm:single-video");
+    tasks.push(fetchRegionFromVideoIds(videoIds));
   }
 
   const results = await Promise.all(tasks.map((t) => t.catch(() => "")));
+
+  // logging مفصّل لتشخيص المصدر
+  console.log(`[region] @${info.username} results:`,
+    sourceNames.map((n, i) => `${n}=${results[i] || "empty"}`).join(" | ")
+  );
+
   const region = results.find((r) => isValidRegion(r)) ?? "";
+  if (region) {
+    const srcIdx = results.findIndex((r) => isValidRegion(r));
+    console.log(`[region] @${info.username} → "${region}" from ${sourceNames[srcIdx]}`);
+  } else {
+    console.log(`[region] @${info.username} → not found in any source`);
+  }
 
   return { ...info, region };
 }
