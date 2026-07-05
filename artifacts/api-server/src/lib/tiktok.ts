@@ -38,10 +38,12 @@ type ExtractResult =
   | { kind: "banned" }
   | { kind: "notfound" };
 
-// نتيجة داخلية تحمل أيضاً secUid لاستخدامه في جلب الدولة لاحقاً
+// نتيجة داخلية تحمل secUid و videoIds لاستخدامهم في جلب الدولة لاحقاً
 type ParsedPage = {
   extract: ExtractResult;
   secUid?: string;
+  videoIds?: string[]; // أول فيديوهات الحساب من HTML الملف الشخصي (إن وُجدت)
+  userId?: string;     // الـ ID الرقمي للمستخدم (مفيد للبحث في tikwm)
 };
 
 function extractUserFromJson(jsonData: Record<string, unknown>): ParsedPage {
@@ -65,13 +67,25 @@ function extractUserFromJson(jsonData: Record<string, unknown>): ParsedPage {
     ? (user["secUid"] as string)
     : undefined;
 
+  // استخراج userId الرقمي (مفيد لمطابقة نتائج feed/search)
+  const userId = typeof user["id"] === "string" ? (user["id"] as string) : undefined;
+
   const region =
     (typeof user["region"] === "string" && user["region"].length === 2 ? user["region"] : "") ||
     (typeof user["localRegion"] === "string" && user["localRegion"].length === 2 ? user["localRegion"] : "") ||
     "";
 
+  // استخراج video IDs من itemList في صفحة الحساب (إن عرضها تيك توك)
+  const itemList = (webappDetail["itemList"] ?? []) as Record<string, unknown>[];
+  const videoIds = itemList
+    .map((item) => (typeof item["id"] === "string" ? item["id"] : ""))
+    .filter(Boolean)
+    .slice(0, 5);
+
   return {
     secUid,
+    userId,
+    videoIds: videoIds.length > 0 ? videoIds : undefined,
     extract: {
       kind: "ok",
       info: {
@@ -109,44 +123,91 @@ function parseHtmlFull(html: string): ParsedPage {
 
 // ─── الحل الجذري: جلب الدولة من قائمة مقاطع الفيديو ──────────────────────
 // تيك توك أخفى region في صفحة الحساب لكنه لا يزال يعيده في بيانات الفيديو.
-// نتحقق من أن كل مقطع ينتمي لصاحب الـ secUid المطلوب لتجنب إعادة دولة خاطئة.
+// نجرّب web_pc و web_mobile بالتوازي لأقصى فرصة نجاح.
 async function fetchRegionFromVideos(secUid: string): Promise<string> {
-  try {
-    const params = new URLSearchParams({
-      secUid,
-      count: "5",
-      cursor: "0",
-      aid: "1988",
-      app_language: "ar",
-      device_platform: "web_mobile",
-      region: "SA",
-      os: "ios",
-      app_name: "tiktok_web",
-    });
-    const url = `https://www.tiktok.com/api/post/item_list/?${params.toString()}`;
-    const response = await axios.get<Record<string, unknown>>(url, {
-      headers: {
-        ...API_HEADERS,
-        "User-Agent":
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 TikTok/30.7.4 i",
-      },
-      timeout: 15000,
-      validateStatus: () => true,
-    });
-    const data = response.data;
-    const itemList = (data["itemList"] ?? []) as Record<string, unknown>[];
-    for (const item of itemList) {
-      const author = (item["author"] ?? {}) as Record<string, unknown>;
-      // ✅ تحقق أن المقطع ينتمي فعلاً لصاحب الـ secUid المطلوب
-      const authorSecUid = typeof author["secUid"] === "string" ? author["secUid"] : "";
-      if (authorSecUid && authorSecUid !== secUid) continue;
-      const r =
-        (typeof author["region"] === "string" ? author["region"] : "") ||
-        (typeof author["localRegion"] === "string" ? author["localRegion"] : "");
-      if (r && r.length === 2) return r.toUpperCase();
-    }
-  } catch { /* تجاهل الخطأ */ }
+  const attempts = [
+    // محاولة 1: web_pc (أقل إثارة للشكوك)
+    new URLSearchParams({ secUid, count: "5", cursor: "0", aid: "1988", device_platform: "web_pc", os: "windows" }),
+    // محاولة 2: web_mobile
+    new URLSearchParams({ secUid, count: "5", cursor: "0", aid: "1988", device_platform: "web_mobile", os: "ios", app_name: "tiktok_web", app_language: "ar" }),
+  ];
+  for (const params of attempts) {
+    try {
+      const url = `https://www.tiktok.com/api/post/item_list/?${params.toString()}`;
+      const response = await axios.get<Record<string, unknown>>(url, {
+        headers: API_HEADERS,
+        timeout: 12000,
+        validateStatus: () => true,
+      });
+      const data = response.data;
+      if (typeof data !== "object" || !data) continue;
+      const itemList = (data["itemList"] ?? []) as Record<string, unknown>[];
+      for (const item of itemList) {
+        const author = (item["author"] ?? {}) as Record<string, unknown>;
+        // تحقق من أن المقطع ينتمي فعلاً لنفس الحساب
+        const authorSecUid = typeof author["secUid"] === "string" ? author["secUid"] : "";
+        if (authorSecUid && authorSecUid !== secUid) continue;
+        const r =
+          (typeof author["region"] === "string" ? author["region"] : "") ||
+          (typeof author["localRegion"] === "string" ? author["localRegion"] : "");
+        if (r && r.length === 2) return r.toUpperCase();
+      }
+    } catch { /* جرّب التالي */ }
+  }
+  return "";
+}
 
+// ─── tikwm feed/search: يبحث عن فيديوهات المستخدم ويُعيد region منها ────────
+// يُغطّي حالة: المستخدم لديه فيديوهات لكن tikwm/user/posts لم يُفهرسها بعد
+// كذلك يُغطّي حالة: المستخدم يظهر في بحث اسمه مع مطابقة دقيقة بالـ ID
+async function fetchRegionFromTikwmSearch(username: string, userId?: string): Promise<string> {
+  // نبحث بالاسم (ورقياً بدون @) ونصفّي بالـ ID للتأكد من الحساب الصحيح
+  const paramSets = [
+    new URLSearchParams({ keywords: username, count: "20", type: "1", cursor: "0" }),
+    new URLSearchParams({ keywords: `@${username}`, count: "20", type: "1", cursor: "0" }),
+  ];
+  for (const params of paramSets) {
+    try {
+      const resp = await axios.get<Record<string, unknown>>(
+        `https://www.tikwm.com/api/feed/search?${params.toString()}`,
+        { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" }, timeout: 12000, validateStatus: () => true }
+      );
+      const data = resp.data;
+      if ((data["code"] as number) !== 0) continue;
+      const videos = ((data["data"] as Record<string, unknown>)?.["videos"] ?? []) as Record<string, unknown>[];
+      for (const video of videos) {
+        const auth = (video["author"] ?? {}) as Record<string, unknown>;
+        const authUsername = typeof auth["unique_id"] === "string" ? auth["unique_id"] : "";
+        const authId = typeof auth["id"] === "string" ? auth["id"] : "";
+        // مطابقة: نفس اليوزرنيم الدقيق أو نفس الـ ID الرقمي
+        const matched =
+          authUsername.toLowerCase() === username.toLowerCase() ||
+          (userId && authId === userId);
+        if (!matched) continue;
+        const r = typeof video["region"] === "string" ? video["region"] : "";
+        if (isValidRegion(r)) return r.toUpperCase();
+      }
+    } catch { /* جرّب التالي */ }
+  }
+  return "";
+}
+
+// ─── tikwm single-video: يجلب region من video IDs محددة (مستخرجة من HTML) ──
+async function fetchRegionFromVideoIds(videoIds: string[]): Promise<string> {
+  for (const id of videoIds) {
+    try {
+      const params = new URLSearchParams({ url: `https://www.tiktok.com/video/${id}` });
+      const resp = await axios.get<Record<string, unknown>>(
+        `https://www.tikwm.com/api/?${params.toString()}`,
+        { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" }, timeout: 12000, validateStatus: () => true }
+      );
+      const data = resp.data;
+      if ((data["code"] as number) !== 0) continue;
+      const inner = (data["data"] ?? {}) as Record<string, unknown>;
+      const r = typeof inner["region"] === "string" ? inner["region"].toUpperCase() : "";
+      if (isValidRegion(r)) return r;
+    } catch { /* جرّب التالي */ }
+  }
   return "";
 }
 
@@ -368,20 +429,29 @@ async function fetchUserFromTikwm(username: string): Promise<TikTokUserInfo | nu
 }
 
 // ─── تحسين الدولة: يُجري كل الطرق المجانية بالتوازي إذا كانت region فارغة ──
-async function enrichRegion(info: TikTokUserInfo, secUid?: string): Promise<TikTokUserInfo> {
-  if (info.region && info.region.length === 2) return info; // الدولة موجودة، لا حاجة لشيء آخر
+async function enrichRegion(
+  info: TikTokUserInfo,
+  secUid?: string,
+  userId?: string,
+  videoIds?: string[]
+): Promise<TikTokUserInfo> {
+  if (isValidRegion(info.region)) return info; // الدولة موجودة، لا حاجة لشيء آخر
 
-  // شغّل كل الطرق بالتوازي لأقصى سرعة
+  // شغّل كل المصادر المتاحة بالتوازي لأقصى سرعة وأعلى تغطية
   const tasks: Promise<string>[] = [
-    fetchRegionFromTikwm(info.username, secUid),        // tikwm (يعمل من أي خادم)
-    fetchRegionFromUserDetailApi(info.username),        // TikTok API بنهج مختلف
+    fetchRegionFromTikwm(info.username, secUid),              // tikwm user/posts
+    fetchRegionFromTikwmSearch(info.username, userId),         // tikwm feed/search (يُغطّي حسابات بدون فهرسة)
+    fetchRegionFromUserDetailApi(info.username),               // TikTok api/user/detail (أنهج متعددة)
   ];
   if (secUid) {
-    tasks.push(fetchRegionFromVideos(secUid));           // TikTok post/item_list
+    tasks.push(fetchRegionFromVideos(secUid));                  // TikTok post/item_list
+  }
+  if (videoIds && videoIds.length > 0) {
+    tasks.push(fetchRegionFromVideoIds(videoIds));              // tikwm single-video بـ IDs من HTML
   }
 
   const results = await Promise.all(tasks.map((t) => t.catch(() => "")));
-  const region = results.find((r) => r && r.length === 2) ?? "";
+  const region = results.find((r) => isValidRegion(r)) ?? "";
 
   return { ...info, region };
 }
@@ -394,26 +464,23 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     const parsed = hasScraperKey
       ? await fetchViaScraperApi(username).catch(() => fetchViaHtml(username))
       : await fetchViaHtml(username).catch((): ParsedPage => ({ extract: { kind: "notfound" } }));
-    const { extract, secUid } = parsed;
-    if (extract.kind === "ok") return enrichRegion(extract.info, secUid ?? username);
+    const { extract, secUid, userId, videoIds } = parsed;
+    if (extract.kind === "ok") return enrichRegion(extract.info, secUid ?? username, userId, videoIds);
     if (extract.kind === "banned") throw new Error("__BANNED__");
     throw new Error("__NOT_FOUND__");
   }
 
   if (hasScraperKey) {
-    // ScraperAPI أولاً + HTML وAPI بالتوازي كـ fallback
     const [scraperParsed, htmlParsed, apiResult] = await Promise.all([
       fetchViaScraperApi(username).catch((): ParsedPage => ({ extract: { kind: "notfound" } })),
       fetchViaHtml(username).catch((): ParsedPage => ({ extract: { kind: "notfound" } })),
       fetchViaApi(username).catch(() => null),
     ]);
-
-    // ScraperAPI هو الأولوية لأنه يعطي نتائج أفضل
     if (scraperParsed.extract.kind === "ok") {
-      return enrichRegion(scraperParsed.extract.info, scraperParsed.secUid);
+      return enrichRegion(scraperParsed.extract.info, scraperParsed.secUid, scraperParsed.userId, scraperParsed.videoIds);
     }
     if (htmlParsed.extract.kind === "ok") {
-      return enrichRegion(htmlParsed.extract.info, htmlParsed.secUid);
+      return enrichRegion(htmlParsed.extract.info, htmlParsed.secUid, htmlParsed.userId, htmlParsed.videoIds);
     }
     if (apiResult) return enrichRegion(apiResult);
     if (scraperParsed.extract.kind === "banned" || htmlParsed.extract.kind === "banned") {
@@ -428,8 +495,8 @@ export async function getTikTokUser(username: string): Promise<TikTokUserInfo> {
     fetchViaApi(username).catch(() => null),
   ]);
 
-  const { extract: htmlExtract, secUid } = htmlParsed;
-  if (htmlExtract.kind === "ok") return enrichRegion(htmlExtract.info, secUid);
+  const { extract: htmlExtract, secUid, userId, videoIds } = htmlParsed;
+  if (htmlExtract.kind === "ok") return enrichRegion(htmlExtract.info, secUid, userId, videoIds);
   if (apiResult) return enrichRegion(apiResult);
   if (htmlExtract.kind === "banned") throw new Error("__BANNED__");
   throw new Error("__NOT_FOUND__");
