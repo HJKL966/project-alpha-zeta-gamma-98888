@@ -513,16 +513,53 @@ export async function resolveUsernameFromVideoUrl(rawUrl: string): Promise<strin
   return null;
 }
 
+// ─── استخراج region من رابط الفيديو مباشرة عبر tikwm (الأسرع والأوثق) ────
+// tikwm تقبل: tiktok.com/video/{id} أو vm.tiktok.com/xxx
+async function fetchRegionFromVideoUrlViaTikwm(rawUrl: string): Promise<string> {
+  // محاولة 1: استخراج video ID من الرابط وبناء صيغة tiktok.com/video/{id}
+  const idMatch = rawUrl.match(/\/video\/(\d{15,25})/);
+  const urlsToTry: string[] = [];
+
+  if (idMatch?.[1]) {
+    urlsToTry.push(`https://www.tiktok.com/video/${idMatch[1]}`);
+  }
+  // محاولة 2: الرابط القصير vm.tiktok.com أو vt.tiktok.com كما هو
+  if (/vm\.tiktok\.com|vt\.tiktok\.com/i.test(rawUrl)) {
+    urlsToTry.push(rawUrl.trim());
+  }
+
+  for (const videoUrl of urlsToTry) {
+    try {
+      const params = new URLSearchParams({ url: videoUrl });
+      const resp = await axios.get<Record<string, unknown>>(
+        `https://www.tikwm.com/api/?${params.toString()}`,
+        { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" }, timeout: 15000, validateStatus: () => true }
+      );
+      const data = resp.data;
+      if ((data["code"] as number) !== 0) continue;
+      const inner = (data["data"] ?? {}) as Record<string, unknown>;
+      const r = typeof inner["region"] === "string" ? inner["region"] : "";
+      if (r && r.length === 2 && /^[A-Z]{2}$/i.test(r)) return r.toUpperCase();
+    } catch { /* جرّب التالي */ }
+  }
+  return "";
+}
+
 export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInfo | null> {
   let url = rawUrl.trim();
   if (!/^https?:\/\//i.test(url)) url = "https://" + url;
   try {
-    const r = await axios.get<string>(url, {
-      headers: BROWSER_HEADERS,
-      timeout: 15000,
-      maxRedirects: 5,
-      validateStatus: () => true,
-    });
+    // شغّل جلب HTML وجلب region من tikwm بالتوازي لتسريع الاستجابة
+    const [r, tikwmRegion] = await Promise.all([
+      axios.get<string>(url, {
+        headers: BROWSER_HEADERS,
+        timeout: 15000,
+        maxRedirects: 5,
+        validateStatus: () => true,
+      }),
+      fetchRegionFromVideoUrlViaTikwm(url).catch(() => ""),
+    ]);
+
     const html = r.data ?? "";
     const m = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
     if (!m || !m[1]) return null;
@@ -534,10 +571,14 @@ export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInf
     const author = (item["author"] ?? {}) as Record<string, unknown>;
     const stats = (item["authorStats"] ?? item["stats"] ?? {}) as Record<string, unknown>;
     if (!author["uniqueId"] && !author["id"]) return null;
-    const region =
+
+    // tikwmRegion هو الأولوية إن وُجد، وإلا نأخذ من HTML أو نُثري لاحقاً
+    const htmlRegion =
       (typeof author["region"] === "string" ? author["region"] : "") ||
       (typeof author["localRegion"] === "string" ? author["localRegion"] : "") ||
       "";
+    const region = tikwmRegion || htmlRegion;
+
     const info: TikTokUserInfo = {
       username: (author["uniqueId"] as string) ?? "",
       nickname: (author["nickname"] as string) ?? "",
@@ -554,7 +595,9 @@ export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInf
       nickNameModifyTime: author["nickNameModifyTime"] as number | undefined,
       uniqueIdModifyTime: author["uniqueIdModifyTime"] as number | undefined,
     };
-    // الفيديو قد يحمل region في بيانات المؤلف مباشرة، لكن إن كانت فارغة نحاول الإثراء
+
+    // إذا لم تُعطِ tikwm نتيجة، نُثري عبر باقي المصادر
+    if (region) return info;
     const secUid = typeof author["secUid"] === "string" ? (author["secUid"] as string) : undefined;
     return enrichRegion(info, secUid);
   } catch { return null; }
