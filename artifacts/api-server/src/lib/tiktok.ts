@@ -144,13 +144,14 @@ async function fetchRegionFromVideos(secUid: string): Promise<string> {
       const itemList = (data["itemList"] ?? []) as Record<string, unknown>[];
       for (const item of itemList) {
         const author = (item["author"] ?? {}) as Record<string, unknown>;
-        // تحقق من أن المقطع ينتمي فعلاً لنفس الحساب
+        // ✅ المطابقة الصارمة: يجب أن يكون secUid المؤلف حاضراً ومطابقاً
+        // إذا secUid غائب من الـ response نتجاهل الفيديو (لا نثق بـ region مجهولة المصدر)
         const authorSecUid = typeof author["secUid"] === "string" ? author["secUid"] : "";
-        if (authorSecUid && authorSecUid !== secUid) continue;
+        if (!authorSecUid || authorSecUid !== secUid) continue;
         const r =
           (typeof author["region"] === "string" ? author["region"] : "") ||
           (typeof author["localRegion"] === "string" ? author["localRegion"] : "");
-        if (r && r.length === 2) return r.toUpperCase();
+        if (isValidRegion(r)) return r.toUpperCase();
       }
     } catch { /* جرّب التالي */ }
   }
@@ -161,7 +162,9 @@ async function fetchRegionFromVideos(secUid: string): Promise<string> {
 // يُغطّي حالة: المستخدم لديه فيديوهات لكن tikwm/user/posts لم يُفهرسها بعد
 // كذلك يُغطّي حالة: المستخدم يظهر في بحث اسمه مع مطابقة دقيقة بالـ ID
 async function fetchRegionFromTikwmSearch(username: string, userId?: string): Promise<string> {
-  // نبحث بالاسم (ورقياً بدون @) ونصفّي بالـ ID للتأكد من الحساب الصحيح
+  // ✅ قاعدة المطابقة الصارمة:
+  // - إذا userId معروف → نتحقق من الـ ID فقط (أمان أعلى، يتجنب تعارض الأسماء)
+  // - إذا userId غير معروف → نتحقق من اليوزرنيم الدقيق فقط
   const paramSets = [
     new URLSearchParams({ keywords: username, count: "20", type: "1", cursor: "0" }),
     new URLSearchParams({ keywords: `@${username}`, count: "20", type: "1", cursor: "0" }),
@@ -179,10 +182,11 @@ async function fetchRegionFromTikwmSearch(username: string, userId?: string): Pr
         const auth = (video["author"] ?? {}) as Record<string, unknown>;
         const authUsername = typeof auth["unique_id"] === "string" ? auth["unique_id"] : "";
         const authId = typeof auth["id"] === "string" ? auth["id"] : "";
-        // مطابقة: نفس اليوزرنيم الدقيق أو نفس الـ ID الرقمي
-        const matched =
-          authUsername.toLowerCase() === username.toLowerCase() ||
-          (userId && authId === userId);
+        // إذا userId معروف: الـ ID هو المعيار الوحيد (يوزرنيم قد يتغير أو يتشابه)
+        // إذا userId غير معروف: يوزرنيم دقيق فقط
+        const matched = userId
+          ? authId === userId
+          : authUsername.toLowerCase() === username.toLowerCase();
         if (!matched) continue;
         const r = typeof video["region"] === "string" ? video["region"] : "";
         if (isValidRegion(r)) return r.toUpperCase();
@@ -317,12 +321,12 @@ async function fetchViaHtml(username: string): Promise<ParsedPage> {
 
 async function fetchViaApi(username: string): Promise<TikTokUserInfo | null> {
   try {
+    // ⚠️ لا نُرسل "region" هنا — قد يعود في الـ response ويُضلّل كأنه بلد المستخدم
     const params = new URLSearchParams({
       uniqueId: username,
       aid: "1988",
       app_language: "ar",
       device_platform: "web_mobile",
-      region: "SA",
     });
     const url = `https://www.tiktok.com/api/user/detail/?${params.toString()}`;
     const response = await axios.get<Record<string, unknown>>(url, {
@@ -426,44 +430,62 @@ async function fetchUserFromTikwm(username: string): Promise<TikTokUserInfo | nu
   } catch { return null; }
 }
 
-// ─── تحسين الدولة: يُجري كل الطرق المجانية بالتوازي إذا كانت region فارغة ──
+// ─── تحسين الدولة: يُجري كل الطرق بالتوازي مع أولوية للمصادر الموثوقة ───────
+// الطبقة 1 (ثقة عالية): فيديو مرتبط بـ secUid / ID المستخدم
+// الطبقة 2 (ثقة متوسطة): API تفاصيل المستخدم
+// المصدر الأفضل من الطبقة الأعلى يفوز دائماً على الطبقات الأدنى
 async function enrichRegion(
   info: TikTokUserInfo,
   secUid?: string,
   userId?: string,
   videoIds?: string[]
 ): Promise<TikTokUserInfo> {
-  if (isValidRegion(info.region)) return info; // الدولة موجودة، لا حاجة لشيء آخر
+  if (isValidRegion(info.region)) return info; // الدولة موجودة مسبقاً
 
-  // أسماء المصادر للـ logging
-  const sourceNames = ["tikwm:user/posts", "tikwm:feed/search", "tiktok:user/detail"];
-  const tasks: Promise<string>[] = [
+  // الطبقة 1: مصادر مرتبطة مباشرة ببيانات الفيديو (secUid / ID مُتحقَّق منه)
+  const tier1Names: string[] = ["tikwm:user/posts", "tikwm:feed/search"];
+  const tier1: Promise<string>[] = [
     fetchRegionFromTikwm(info.username, secUid),
     fetchRegionFromTikwmSearch(info.username, userId),
-    fetchRegionFromUserDetailApi(info.username),
   ];
   if (secUid) {
-    sourceNames.push("tiktok:post/item_list");
-    tasks.push(fetchRegionFromVideos(secUid));
+    tier1Names.push("tiktok:post/item_list");
+    tier1.push(fetchRegionFromVideos(secUid));
   }
   if (videoIds && videoIds.length > 0) {
-    sourceNames.push("tikwm:single-video");
-    tasks.push(fetchRegionFromVideoIds(videoIds));
+    tier1Names.push("tikwm:single-video");
+    tier1.push(fetchRegionFromVideoIds(videoIds));
   }
 
-  const results = await Promise.all(tasks.map((t) => t.catch(() => "")));
+  // الطبقة 2: API تفاصيل المستخدم (بدون region في params لتجنب الـ echo)
+  const tier2Names = ["tiktok:user/detail"];
+  const tier2: Promise<string>[] = [fetchRegionFromUserDetailApi(info.username)];
 
-  // logging مفصّل لتشخيص المصدر
-  console.log(`[region] @${info.username} results:`,
-    sourceNames.map((n, i) => `${n}=${results[i] || "empty"}`).join(" | ")
+  // نُشغّل كل شيء بالتوازي لكن نُقيّم بالترتيب: Tier1 ثم Tier2
+  const [tier1Results, tier2Results] = await Promise.all([
+    Promise.all(tier1.map((t) => t.catch(() => ""))),
+    Promise.all(tier2.map((t) => t.catch(() => ""))),
+  ]);
+
+  // logging شامل لتشخيص أي مصدر يُعيد ماذا
+  const allNames = [...tier1Names, ...tier2Names];
+  const allResults = [...tier1Results, ...tier2Results];
+  console.log(
+    `[region] @${info.username}: ` +
+    allNames.map((n, i) => `${n}=${allResults[i] || "∅"}`).join(" | ")
   );
 
-  const region = results.find((r) => isValidRegion(r)) ?? "";
+  // اختيار الدولة: Tier1 أولاً، ثم Tier2 إذا Tier1 فشل كلياً
+  const region =
+    tier1Results.find((r) => isValidRegion(r)) ||
+    tier2Results.find((r) => isValidRegion(r)) ||
+    "";
+
+  const winnerIdx = allResults.findIndex((r) => isValidRegion(r));
   if (region) {
-    const srcIdx = results.findIndex((r) => isValidRegion(r));
-    console.log(`[region] @${info.username} → "${region}" from ${sourceNames[srcIdx]}`);
+    console.log(`[region] @${info.username} → "${region}" (${allNames[winnerIdx]})`);
   } else {
-    console.log(`[region] @${info.username} → not found in any source`);
+    console.log(`[region] @${info.username} → not found`);
   }
 
   return { ...info, region };
