@@ -513,18 +513,29 @@ export async function resolveUsernameFromVideoUrl(rawUrl: string): Promise<strin
   return null;
 }
 
+// ─── مساعد: هل الكود دولة صالح؟ ─────────────────────────────────────────
+function isValidRegion(r: string): boolean {
+  return r.length === 2 && /^[A-Z]{2}$/i.test(r);
+}
+
 // ─── استخراج region من رابط الفيديو مباشرة عبر tikwm (الأسرع والأوثق) ────
-// tikwm تقبل: tiktok.com/video/{id} أو vm.tiktok.com/xxx
+// tikwm تقبل: tiktok.com/video/{id}، وأشكال vm/vt القصيرة، وصيغة t/
 async function fetchRegionFromVideoUrlViaTikwm(rawUrl: string): Promise<string> {
-  // محاولة 1: استخراج video ID من الرابط وبناء صيغة tiktok.com/video/{id}
-  const idMatch = rawUrl.match(/\/video\/(\d{15,25})/);
   const urlsToTry: string[] = [];
 
+  // صيغة 1: استخراج video ID وبناء الرابط القياسي (الأكثر موثوقية)
+  const idMatch = rawUrl.match(/\/video\/(\d{15,25})/);
   if (idMatch?.[1]) {
     urlsToTry.push(`https://www.tiktok.com/video/${idMatch[1]}`);
   }
-  // محاولة 2: الرابط القصير vm.tiktok.com أو vt.tiktok.com كما هو
-  if (/vm\.tiktok\.com|vt\.tiktok\.com/i.test(rawUrl)) {
+
+  // صيغة 2: الروابط القصيرة والمشاركة — إرسالها كما هي
+  if (/vm\.tiktok\.com|vt\.tiktok\.com|tiktok\.com\/t\//i.test(rawUrl)) {
+    urlsToTry.push(rawUrl.trim());
+  }
+
+  // صيغة 3: الرابط الأصلي (آخر محاولة — يغطي m.tiktok.com وغيرها)
+  if (!urlsToTry.some((u) => u === rawUrl.trim())) {
     urlsToTry.push(rawUrl.trim());
   }
 
@@ -533,13 +544,13 @@ async function fetchRegionFromVideoUrlViaTikwm(rawUrl: string): Promise<string> 
       const params = new URLSearchParams({ url: videoUrl });
       const resp = await axios.get<Record<string, unknown>>(
         `https://www.tikwm.com/api/?${params.toString()}`,
-        { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" }, timeout: 15000, validateStatus: () => true }
+        { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" }, timeout: 12000, validateStatus: () => true }
       );
       const data = resp.data;
       if ((data["code"] as number) !== 0) continue;
       const inner = (data["data"] ?? {}) as Record<string, unknown>;
-      const r = typeof inner["region"] === "string" ? inner["region"] : "";
-      if (r && r.length === 2 && /^[A-Z]{2}$/i.test(r)) return r.toUpperCase();
+      const r = typeof inner["region"] === "string" ? inner["region"].toUpperCase() : "";
+      if (isValidRegion(r)) return r;
     } catch { /* جرّب التالي */ }
   }
   return "";
@@ -549,16 +560,13 @@ export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInf
   let url = rawUrl.trim();
   if (!/^https?:\/\//i.test(url)) url = "https://" + url;
   try {
-    // شغّل جلب HTML وجلب region من tikwm بالتوازي لتسريع الاستجابة
-    const [r, tikwmRegion] = await Promise.all([
-      axios.get<string>(url, {
-        headers: BROWSER_HEADERS,
-        timeout: 15000,
-        maxRedirects: 5,
-        validateStatus: () => true,
-      }),
-      fetchRegionFromVideoUrlViaTikwm(url).catch(() => ""),
-    ]);
+    // جلب HTML الفيديو أولاً (ضروري لبيانات المستخدم)
+    const r = await axios.get<string>(url, {
+      headers: BROWSER_HEADERS,
+      timeout: 15000,
+      maxRedirects: 5,
+      validateStatus: () => true,
+    });
 
     const html = r.data ?? "";
     const m = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
@@ -572,12 +580,11 @@ export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInf
     const stats = (item["authorStats"] ?? item["stats"] ?? {}) as Record<string, unknown>;
     if (!author["uniqueId"] && !author["id"]) return null;
 
-    // tikwmRegion هو الأولوية إن وُجد، وإلا نأخذ من HTML أو نُثري لاحقاً
+    // region من HTML (قد تكون فارغة بعد تعديلات تيك توك)
     const htmlRegion =
-      (typeof author["region"] === "string" ? author["region"] : "") ||
-      (typeof author["localRegion"] === "string" ? author["localRegion"] : "") ||
+      (typeof author["region"] === "string" && isValidRegion(author["region"]) ? (author["region"] as string).toUpperCase() : "") ||
+      (typeof author["localRegion"] === "string" && isValidRegion(author["localRegion"]) ? (author["localRegion"] as string).toUpperCase() : "") ||
       "";
-    const region = tikwmRegion || htmlRegion;
 
     const info: TikTokUserInfo = {
       username: (author["uniqueId"] as string) ?? "",
@@ -588,7 +595,7 @@ export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInf
       friends: Number((stats["friendCount"] as number | undefined) ?? 0),
       likes: Number((stats["heartCount"] as number | undefined) ?? (author["heartCount"] as number | undefined) ?? 0),
       verified: Boolean(author["verified"] ?? false),
-      region,
+      region: htmlRegion,
       avatar: (author["avatarLarger"] as string) ?? "",
       id: (author["id"] as string) ?? "",
       createTime: author["createTime"] as number | undefined,
@@ -596,10 +603,21 @@ export async function getUserFromVideoUrl(rawUrl: string): Promise<TikTokUserInf
       uniqueIdModifyTime: author["uniqueIdModifyTime"] as number | undefined,
     };
 
-    // إذا لم تُعطِ tikwm نتيجة، نُثري عبر باقي المصادر
-    if (region) return info;
+    // HTML يحمل region صالح → نرجع فوراً بدون استدعاء إضافي
+    if (htmlRegion) return info;
+
+    // region مفقودة → نجلبها من tikwm (رابط الفيديو مصدر مباشر وموثوق)
+    // وبالتوازي من مصادر الإثراء الأخرى (post/item_list, user/detail)
     const secUid = typeof author["secUid"] === "string" ? (author["secUid"] as string) : undefined;
-    return enrichRegion(info, secUid);
+
+    const [tikwmRegion, enriched] = await Promise.all([
+      fetchRegionFromVideoUrlViaTikwm(url).catch(() => ""),
+      enrichRegion(info, secUid),
+    ]);
+
+    // tikwm أعطى نتيجة صالحة → تكسب على enrichRegion
+    if (tikwmRegion) return { ...enriched, region: tikwmRegion };
+    return enriched;
   } catch { return null; }
 }
 
