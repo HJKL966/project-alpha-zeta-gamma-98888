@@ -108,14 +108,64 @@ function extractUserFromJson(jsonData: Record<string, unknown>): ParsedPage {
   };
 }
 
+// ─── بحث شامل: يجد أي region صالح في أعماق JSON (أياً كان المسار) ───────
+function deepFindRegion(obj: unknown, depth = 0): string {
+  if (depth > 8 || typeof obj !== "object" || obj === null) return "";
+  const o = obj as Record<string, unknown>;
+  // مسارات مباشرة لـ region
+  for (const key of ["region", "localRegion", "currentRegion", "countryCode"]) {
+    const val = o[key];
+    if (typeof val === "string" && isValidRegion(val)) return val.toUpperCase();
+  }
+  // بحث عميق في كل القيم
+  for (const val of Object.values(o)) {
+    if (typeof val === "object" && val !== null && !Array.isArray(val)) {
+      const found = deepFindRegion(val, depth + 1);
+      if (found) return found;
+    }
+  }
+  return "";
+}
+
 function parseHtmlFull(html: string): ParsedPage {
+  // محاولة 1: __UNIVERSAL_DATA_FOR_REHYDRATION__ (المسار الأساسي)
   const scriptMatch = html.match(
     /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/
   );
   if (!scriptMatch || !scriptMatch[1]) return { extract: { kind: "notfound" } };
   try {
     const jsonData = JSON.parse(scriptMatch[1]) as Record<string, unknown>;
-    return extractUserFromJson(jsonData);
+    const page = extractUserFromJson(jsonData);
+
+    // محاولة 2: إذا region فارغة، ابحث في كامل JSON بعمق
+    if (page.extract.kind === "ok" && !isValidRegion(page.extract.info.region)) {
+      const deepRegion = deepFindRegion(jsonData);
+      if (deepRegion) {
+        return {
+          ...page,
+          extract: { kind: "ok", info: { ...page.extract.info, region: deepRegion } },
+        };
+      }
+
+      // محاولة 3: __remixContext (بيانات React Router، قد تحمل region)
+      const remixMatch = html.match(/data-ttark="__remixContext">([^<]{1,50000})/);
+      if (remixMatch?.[1]) {
+        try {
+          const remixRaw = remixMatch[1].startsWith("%7B")
+            ? decodeURIComponent(remixMatch[1])
+            : remixMatch[1];
+          const remixData = JSON.parse(remixRaw) as unknown;
+          const remixRegion = deepFindRegion(remixData);
+          if (remixRegion) {
+            return {
+              ...page,
+              extract: { kind: "ok", info: { ...page.extract.info, region: remixRegion } },
+            };
+          }
+        } catch { /* تجاهل */ }
+      }
+    }
+    return page;
   } catch {
     return { extract: { kind: "notfound" } };
   }
